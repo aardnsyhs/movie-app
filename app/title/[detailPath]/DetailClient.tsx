@@ -359,7 +359,11 @@ function DetailContent({
       ) : (
         <section id="player" className="container-main py-8">
           <h2 className="text-xl font-semibold mb-4">Watch</h2>
-          <VideoPlayer embedSrc={detail.playerUrl} title={detail.title} />
+          <VideoPlayer
+            title={detail.title}
+            detailPath={detailPath}
+            embedSrc={detail.playerUrl}
+          />
         </section>
       )}
     </div>

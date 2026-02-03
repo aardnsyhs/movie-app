@@ -301,6 +301,9 @@ export function EpisodePlayer({
 
             <VideoPlayer
               title={title}
+              detailPath={detailPath}
+              season={selectedSeason}
+              episode={selectedEpisode}
               embedSrc={currentPlayerUrl}
               isLoading={isLoadingPlayer}
               playerKey={playerKey}
