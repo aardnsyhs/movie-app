@@ -20,18 +20,7 @@ const categories: Category[] = [
   "anime",
 ];
 
-interface HomeContentProps {
-  initialData: {
-    trending: ParsedAPIListResponse;
-    indonesianMovies: ParsedAPIListResponse;
-    indonesianDrama: ParsedAPIListResponse;
-    kdrama: ParsedAPIListResponse;
-    shortTV: ParsedAPIListResponse;
-    anime: ParsedAPIListResponse;
-  };
-}
-
-export function HomeContent({ initialData }: HomeContentProps) {
+export function HomeContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const categoryParam = searchParams.get("category") as Category | null;

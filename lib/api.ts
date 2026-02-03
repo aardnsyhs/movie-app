@@ -13,6 +13,9 @@ const API_BASE_URL =
 const PLAYER_BASE_URL =
   process.env.NEXT_PUBLIC_PLAYER_BASE_URL || "https://zeldvorik.ru/apiv3";
 
+/** Default timeout for API requests (8 seconds) */
+const DEFAULT_TIMEOUT_MS = 8000;
+
 /**
  * API Result type for consistent error handling
  */
@@ -21,13 +24,41 @@ export type ApiResult<T> =
   | { ok: false; error: string; status?: number };
 
 /**
- * Generic fetch wrapper with error handling
+ * Fetch with timeout using AbortController
+ * Prevents server/client from waiting indefinitely on slow APIs
+ */
+export async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Generic fetch wrapper with error handling (for server-side)
  */
 async function fetchAPI<T>(
   url: string,
   parser: (data: unknown) => T,
 ): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     next: { revalidate: 300 }, // Cache for 5 minutes
   });
 
@@ -161,12 +192,27 @@ export function getPlayerBaseUrl(): string {
 }
 
 /**
- * SWR fetcher for client-side data fetching
+ * SWR fetcher for client-side data fetching (no timeout)
  */
 export const swrFetcher = async (
   url: string,
 ): Promise<ParsedAPIListResponse> => {
   const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+  const data = await response.json();
+  return APIListResponseSchema.parse(data);
+};
+
+/**
+ * SWR fetcher with timeout for client-side data fetching
+ * Includes 8s timeout to prevent long waits on slow APIs
+ */
+export const swrFetcherWithTimeout = async (
+  url: string,
+): Promise<ParsedAPIListResponse> => {
+  const response = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
   if (!response.ok) {
     throw new Error(`API error: ${response.status}`);
   }
