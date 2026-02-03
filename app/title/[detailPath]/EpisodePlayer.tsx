@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Play, Loader2, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { VideoPlayer } from "@/components";
@@ -70,9 +70,10 @@ export function EpisodePlayer({
   title,
 }: EpisodePlayerProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Last watched hook
+  // Last watched hook (stable - no infinite loop)
   const { lastWatched, updateLastWatched } = useLastWatched(detailPath);
 
   // Stream loading state
@@ -87,60 +88,89 @@ export function EpisodePlayer({
   const firstSeason = seasons[0]?.seasonNumber ?? 1;
   const firstEpisode = seasons[0]?.episodes[0]?.episodeNumber ?? 1;
 
-  /**
-   * Determine initial selection based on priority:
-   * 1. URL query params (?season=X&episode=Y)
-   * 2. Last watched from localStorage
-   * 3. First episode
-   */
-  const getInitialSelection = useCallback((): {
-    season: number;
-    episode: number;
-  } => {
-    // Check URL params first
-    const urlSeason = searchParams.get("season");
-    const urlEpisode = searchParams.get("episode");
+  // Parse URL params once (stable refs)
+  const qpSeason = Number(searchParams.get("season")) || 0;
+  const qpEpisode = Number(searchParams.get("episode")) || 0;
 
-    if (urlSeason && urlEpisode) {
-      const s = parseInt(urlSeason, 10);
-      const e = parseInt(urlEpisode, 10);
-      if (!isNaN(s) && !isNaN(e) && isValidSelection(seasons, s, e)) {
-        return { season: s, episode: e };
-      }
+  // Compute initial selection (runs only on mount)
+  const getInitialValues = (): { season: number; episode: number } => {
+    // Priority 1: Valid URL params
+    if (
+      qpSeason > 0 &&
+      qpEpisode > 0 &&
+      isValidSelection(seasons, qpSeason, qpEpisode)
+    ) {
+      return { season: qpSeason, episode: qpEpisode };
     }
-
-    // Check last watched
+    // Priority 2: Last watched from localStorage
     if (
       lastWatched &&
       isValidSelection(seasons, lastWatched.season, lastWatched.episode)
     ) {
       return { season: lastWatched.season, episode: lastWatched.episode };
     }
-
-    // Fallback to first
+    // Priority 3: First episode
     return { season: firstSeason, episode: firstEpisode };
-  }, [searchParams, lastWatched, seasons, firstSeason, firstEpisode]);
+  };
 
-  // Compute initial selection once
-  const initialSelection = useMemo(
-    () => getInitialSelection(),
-    [getInitialSelection],
-  );
+  // Initialize state (only once on mount)
+  const initialRef = useRef<{ season: number; episode: number } | null>(null);
+  if (initialRef.current === null) {
+    initialRef.current = getInitialValues();
+  }
+  const initial = initialRef.current;
 
-  // Initialize state with computed initial values
-  const [activeSeason, setActiveSeason] = useState(() =>
-    findSeasonIndex(seasons, initialSelection.season),
-  );
-  const [selectedEpisode, setSelectedEpisode] = useState(
-    () => initialSelection.episode,
-  );
+  const [selectedSeason, setSelectedSeason] = useState(initial.season);
+  const [selectedEpisode, setSelectedEpisode] = useState(initial.episode);
 
-  const currentSeason = seasons[activeSeason];
-  const currentSeasonNumber = currentSeason?.seasonNumber ?? 1;
+  // Derived: activeSeason index (for EpisodeBrowser)
+  const activeSeason = findSeasonIndex(seasons, selectedSeason);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EFFECT #1: URL → State (only when URL changes externally)
+  // ═══════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    // Only sync if URL has valid values AND they differ from state
+    if (
+      qpSeason > 0 &&
+      qpEpisode > 0 &&
+      isValidSelection(seasons, qpSeason, qpEpisode)
+    ) {
+      if (qpSeason !== selectedSeason) {
+        setSelectedSeason(qpSeason);
+      }
+      if (qpEpisode !== selectedEpisode) {
+        setSelectedEpisode(qpEpisode);
+      }
+    }
+    // ❗ CRITICAL: Do NOT include selectedSeason/selectedEpisode in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qpSeason, qpEpisode, seasons]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EFFECT #2: State → URL (only when state changes)
+  // ═══════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const currentUrlSeason = searchParams.get("season");
+    const currentUrlEpisode = searchParams.get("episode");
+
+    const nextSeason = String(selectedSeason);
+    const nextEpisode = String(selectedEpisode);
+
+    // ✅ GUARD: Skip if URL already matches state
+    if (currentUrlSeason === nextSeason && currentUrlEpisode === nextEpisode) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("season", nextSeason);
+    params.set("episode", nextEpisode);
+
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [selectedSeason, selectedEpisode, pathname, router, searchParams]);
 
   // Derive player base URL from any available playerUrl
   const playerBaseUrl = useMemo(() => {
-    // Try to find any episode with a playerUrl
     for (const season of seasons) {
       for (const ep of season.episodes) {
         if (ep.playerUrl) {
@@ -148,25 +178,11 @@ export function EpisodePlayer({
         }
       }
     }
-    // Fallback to initialPlayerUrl
     if (initialPlayerUrl) {
       return getPlayerBaseUrlFromAnyPlayerUrl(initialPlayerUrl);
     }
     return null;
   }, [seasons, initialPlayerUrl]);
-
-  /**
-   * Update URL query params (shallow update, no page reload)
-   */
-  const updateUrlParams = useCallback(
-    (seasonNum: number, episodeNum: number) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("season", String(seasonNum));
-      params.set("episode", String(episodeNum));
-      router.replace(`?${params.toString()}`, { scroll: false });
-    },
-    [router, searchParams],
-  );
 
   /**
    * Compute the player URL for current episode
@@ -175,12 +191,10 @@ export function EpisodePlayer({
     (seasonNum: number, episodeNum: number): string | undefined => {
       const episode = findEpisode(seasons, seasonNum, episodeNum);
 
-      // Prefer episode's own playerUrl
       if (episode?.playerUrl) {
         return episode.playerUrl;
       }
 
-      // Build URL from base
       if (playerBaseUrl) {
         return buildPlayerUrl({
           base: playerBaseUrl,
@@ -220,7 +234,6 @@ export function EpisodePlayer({
             playerUrl: fallbackUrl,
           });
         } else {
-          // Use iframe fallback
           setStreamState({
             downloads: [],
             captions: [],
@@ -228,7 +241,6 @@ export function EpisodePlayer({
           });
         }
       } catch {
-        // Use iframe fallback on error
         setStreamState({
           downloads: [],
           captions: [],
@@ -243,24 +255,24 @@ export function EpisodePlayer({
 
   // Load stream when episode changes
   useEffect(() => {
-    loadStreamSources(currentSeasonNumber, selectedEpisode);
-  }, [currentSeasonNumber, selectedEpisode, loadStreamSources]);
+    loadStreamSources(selectedSeason, selectedEpisode);
+  }, [selectedSeason, selectedEpisode, loadStreamSources]);
 
   /**
    * Handle season change from EpisodeBrowser
    */
   const handleSeasonChange = useCallback(
     (index: number) => {
-      setActiveSeason(index);
-      // Reset to first episode of new season
+      const newSeason = seasons[index]?.seasonNumber ?? 1;
       const firstEp = seasons[index]?.episodes[0]?.episodeNumber ?? 1;
+
+      setSelectedSeason(newSeason);
       setSelectedEpisode(firstEp);
 
-      const newSeasonNum = seasons[index]?.seasonNumber ?? 1;
-      updateUrlParams(newSeasonNum, firstEp);
-      updateLastWatched(newSeasonNum, firstEp);
+      // Save to localStorage
+      updateLastWatched(newSeason, firstEp);
     },
-    [seasons, updateUrlParams, updateLastWatched],
+    [seasons, updateLastWatched],
   );
 
   /**
@@ -268,20 +280,18 @@ export function EpisodePlayer({
    */
   const handleEpisodeSelect = useCallback(
     (seasonNum: number, episodeNum: number) => {
-      // Find and set the correct season index
-      const seasonIndex = findSeasonIndex(seasons, seasonNum);
-      setActiveSeason(seasonIndex);
+      setSelectedSeason(seasonNum);
       setSelectedEpisode(episodeNum);
 
-      // Update URL and localStorage
-      updateUrlParams(seasonNum, episodeNum);
+      // Save to localStorage
       updateLastWatched(seasonNum, episodeNum);
 
       // Scroll to player
       document.getElementById("player")?.scrollIntoView({ behavior: "smooth" });
     },
-    [seasons, updateUrlParams, updateLastWatched],
+    [updateLastWatched],
   );
+
   /**
    * Continue watching button handler
    */
@@ -291,7 +301,7 @@ export function EpisodePlayer({
   }, [lastWatched, handleEpisodeSelect]);
 
   // Generate unique player key for iframe remount
-  const playerKey = `${contentId}-${currentSeasonNumber}-${selectedEpisode}`;
+  const playerKey = `${contentId}-${selectedSeason}-${selectedEpisode}`;
 
   return (
     <>
@@ -315,7 +325,7 @@ export function EpisodePlayer({
                     <Loader2 className="w-4 h-4 animate-spin" />
                   )}
                   <span className="px-3 py-1 bg-[var(--surface-secondary)] rounded-full">
-                    S{currentSeasonNumber} • E{selectedEpisode}
+                    S{selectedSeason} • E{selectedEpisode}
                   </span>
                 </motion.div>
               </AnimatePresence>
@@ -332,7 +342,7 @@ export function EpisodePlayer({
 
             {/* Continue Watching Button (mobile) */}
             {lastWatched &&
-              (lastWatched.season !== currentSeasonNumber ||
+              (lastWatched.season !== selectedSeason ||
                 lastWatched.episode !== selectedEpisode) && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
@@ -357,7 +367,7 @@ export function EpisodePlayer({
             <div className="sticky top-24 h-[calc(100vh-8rem)]">
               {/* Continue Watching Button (desktop) */}
               {lastWatched &&
-                (lastWatched.season !== currentSeasonNumber ||
+                (lastWatched.season !== selectedSeason ||
                   lastWatched.episode !== selectedEpisode) && (
                   <motion.button
                     initial={{ opacity: 0, y: -10 }}

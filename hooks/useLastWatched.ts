@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 /**
  * Last watched episode data
@@ -20,80 +20,24 @@ function getStorageKey(titleKey: string): string {
 }
 
 /**
- * Get last watched data from localStorage (safe for SSR)
+ * Subscribe to storage changes
  */
-export function getLastWatched(titleKey: string): LastWatchedData | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const key = getStorageKey(titleKey);
-    const stored = localStorage.getItem(key);
-    if (!stored) return null;
-
-    const parsed = JSON.parse(stored) as unknown;
-
-    // Validate shape
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "season" in parsed &&
-      "episode" in parsed &&
-      "updatedAt" in parsed &&
-      typeof (parsed as LastWatchedData).season === "number" &&
-      typeof (parsed as LastWatchedData).episode === "number" &&
-      typeof (parsed as LastWatchedData).updatedAt === "number"
-    ) {
-      return parsed as LastWatchedData;
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Set last watched data in localStorage
- */
-export function setLastWatched(
-  titleKey: string,
-  data: Omit<LastWatchedData, "updatedAt">,
-): void {
-  if (typeof window === "undefined") return;
-
-  try {
-    const key = getStorageKey(titleKey);
-    const fullData: LastWatchedData = {
-      ...data,
-      updatedAt: Date.now(),
+function createSubscribe(storageKey: string) {
+  return (callback: () => void) => {
+    const handleStorage = (e: StorageEvent) => {
+      // Trigger on matching key or null (clear all)
+      if (e.key === storageKey || e.key === null) {
+        callback();
+      }
     };
-    localStorage.setItem(key, JSON.stringify(fullData));
-    // Dispatch storage event to trigger re-render
-    window.dispatchEvent(new StorageEvent("storage", { key }));
-  } catch {
-    // Silently fail if localStorage is unavailable
-  }
-}
-
-/**
- * Clear last watched data for a title
- */
-export function clearLastWatched(titleKey: string): void {
-  if (typeof window === "undefined") return;
-
-  try {
-    const key = getStorageKey(titleKey);
-    localStorage.removeItem(key);
-    // Dispatch storage event to trigger re-render
-    window.dispatchEvent(new StorageEvent("storage", { key }));
-  } catch {
-    // Silently fail
-  }
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  };
 }
 
 /**
  * Hook to manage last watched episode for a specific title
- * Uses useSyncExternalStore for React 19 compatibility
+ * Uses useSyncExternalStore with STABLE snapshot (primitive string)
  *
  * @param titleKey - Unique key for the title (e.g., detailPath)
  * @returns Object with lastWatched data and update function
@@ -101,56 +45,77 @@ export function clearLastWatched(titleKey: string): void {
 export function useLastWatched(titleKey: string) {
   const storageKey = getStorageKey(titleKey);
 
-  // Subscribe to storage changes
+  // Subscribe function - memoized per storageKey
   const subscribe = useCallback(
-    (callback: () => void) => {
-      const handleStorage = (e: StorageEvent) => {
-        if (e.key === storageKey || e.key === null) {
-          callback();
-        }
-      };
-      window.addEventListener("storage", handleStorage);
-      return () => window.removeEventListener("storage", handleStorage);
-    },
+    (callback: () => void) => createSubscribe(storageKey)(callback),
     [storageKey],
   );
 
-  // Get current snapshot
-  const getSnapshot = useCallback(() => {
-    return getLastWatched(titleKey);
-  }, [titleKey]);
+  // ✅ CRITICAL: getSnapshot MUST return a PRIMITIVE (string)
+  // Returning an object/array causes infinite loop because React
+  // compares by reference and JSON.parse always creates new objects
+  const getSnapshot = useCallback((): string => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(storageKey) ?? "";
+  }, [storageKey]);
 
-  // Server snapshot (always null)
-  const getServerSnapshot = useCallback(() => null, []);
+  // Server snapshot - always empty string
+  const getServerSnapshot = useCallback((): string => "", []);
 
-  const lastWatched = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot,
-  );
+  // Raw string from localStorage (stable primitive)
+  const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+
+  // ✅ Parse JSON only via useMemo, keyed on the raw string
+  // This ensures we only re-parse when the string actually changes
+  const lastWatched = useMemo<LastWatchedData | null>(() => {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+
+      // Validate shape
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "season" in parsed &&
+        "episode" in parsed &&
+        "updatedAt" in parsed &&
+        typeof (parsed as LastWatchedData).season === "number" &&
+        typeof (parsed as LastWatchedData).episode === "number" &&
+        typeof (parsed as LastWatchedData).updatedAt === "number"
+      ) {
+        return parsed as LastWatchedData;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [raw]);
 
   // Update last watched in localStorage
   const updateLastWatched = useCallback(
     (season: number, episode: number, playbackTime?: number) => {
-      const data: Omit<LastWatchedData, "updatedAt"> = {
+      const data: LastWatchedData = {
         season,
         episode,
         playbackTime,
+        updatedAt: Date.now(),
       };
-      setLastWatched(titleKey, data);
+      window.localStorage.setItem(storageKey, JSON.stringify(data));
+      // Dispatch storage event to trigger re-render in this tab
+      window.dispatchEvent(new StorageEvent("storage", { key: storageKey }));
     },
-    [titleKey],
+    [storageKey],
   );
 
   // Clear last watched
-  const clear = useCallback(() => {
-    clearLastWatched(titleKey);
-  }, [titleKey]);
+  const clearLastWatched = useCallback(() => {
+    window.localStorage.removeItem(storageKey);
+    window.dispatchEvent(new StorageEvent("storage", { key: storageKey }));
+  }, [storageKey]);
 
   return {
     lastWatched,
-    isLoaded: true, // Always loaded with useSyncExternalStore
     updateLastWatched,
-    clearLastWatched: clear,
+    clearLastWatched,
   };
 }
