@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useMemo, useState, useCallback, useEffect } from "react";
-import Image from "next/image";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Play, ChevronDown, Clock, X, Check } from "lucide-react";
+import { ThumbnailImage } from "./PosterImage";
 import type { ParsedSeason, ParsedEpisode } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
@@ -358,19 +358,10 @@ function EpisodeRow({
     >
       {/* Thumbnail */}
       <div className="relative flex-shrink-0 w-28 h-16 rounded-md overflow-hidden bg-[var(--surface-secondary)]">
-        {episode.cover ? (
-          <Image
-            src={episode.cover}
-            alt={`Episode ${episode.episodeNumber}`}
-            fill
-            className="object-cover"
-            sizes="112px"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Play className="w-6 h-6 text-[var(--foreground-subtle)]" />
-          </div>
-        )}
+        <ThumbnailImage
+          src={episode.cover}
+          alt={`Episode ${episode.episodeNumber}`}
+        />
 
         {/* Play overlay on hover */}
         <div

@@ -10,6 +10,12 @@ export { HeroSlider } from "./content/HeroSlider";
 export { VideoPlayer } from "./content/VideoPlayer";
 export { EpisodeBrowser } from "./content/EpisodeBrowser";
 export {
+  PosterImage,
+  BackdropImage,
+  ThumbnailImage,
+  isHeavyProxyUrl,
+} from "./content/PosterImage";
+export {
   CardSkeleton,
   CardSkeletonGrid,
   RailSkeleton,

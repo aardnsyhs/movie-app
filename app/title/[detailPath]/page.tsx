@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -15,6 +14,7 @@ import {
 import { fetchDetail } from "@/lib/api";
 import { formatRating, truncateText } from "@/lib/utils";
 import { VideoPlayer } from "@/components";
+import { BackdropImage, PosterImage } from "@/components/content/PosterImage";
 import { DetailClient } from "./DetailClient";
 import { EpisodePlayer } from "./EpisodePlayer";
 
@@ -140,13 +140,11 @@ export default async function DetailPage({ params }: DetailPageProps) {
         {/* Background Image */}
         {backdropImage && (
           <div className="absolute inset-0">
-            <Image
+            <BackdropImage
               src={backdropImage}
               alt=""
-              fill
               className="object-cover object-top"
               priority
-              aria-hidden="true"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-[var(--background)] via-[var(--background)]/70 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/30 to-transparent" />
@@ -169,7 +167,7 @@ export default async function DetailPage({ params }: DetailPageProps) {
             <div className="flex-shrink-0 w-48 md:w-64 mx-auto md:mx-0">
               {detail.poster ? (
                 <div className="relative aspect-[2/3] rounded-lg overflow-hidden shadow-2xl">
-                  <Image
+                  <PosterImage
                     src={detail.poster}
                     alt={detail.title}
                     fill

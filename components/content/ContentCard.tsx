@@ -1,10 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Star, Play } from "lucide-react";
 import { cn, formatRating } from "@/lib/utils";
+import { PosterImage } from "./PosterImage";
 import type { ContentItem } from "@/lib/types";
 
 interface ContentCardProps {
@@ -33,20 +33,14 @@ export function ContentCard({
         aria-label={`View ${item.title}`}
       >
         {/* Poster Image */}
-        {item.poster ? (
-          <Image
-            src={item.poster}
-            alt={item.title}
-            fill
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
-            priority={priority}
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-[var(--surface-secondary)]">
-            <Play className="w-12 h-12 text-[var(--foreground-subtle)]" />
-          </div>
-        )}
+        <PosterImage
+          src={item.poster}
+          alt={item.title}
+          fill
+          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+          className="object-cover transition-transform duration-300 group-hover:scale-105"
+          priority={priority}
+        />
 
         {/* Hover Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, Info, Star, ChevronLeft, ChevronRight } from "lucide-react";
 import { HeroSkeleton } from "./CardSkeleton";
+import { BackdropImage } from "./PosterImage";
 import { formatRating } from "@/lib/utils";
 import type { ContentItem } from "@/lib/types";
 
@@ -63,13 +63,11 @@ export function HeroSlider({ items, isLoading = false }: HeroSliderProps) {
         >
           {/* Background Image */}
           {currentItem.poster && (
-            <Image
+            <BackdropImage
               src={currentItem.poster}
               alt=""
-              fill
               className="object-cover object-top"
               priority
-              aria-hidden="true"
             />
           )}
 
