@@ -255,6 +255,8 @@ export default async function DetailPage({ params }: DetailPageProps) {
       {/* Video Player & Episodes Section */}
       {hasSeasons ? (
         <EpisodePlayer
+          contentId={detail.id}
+          detailPath={detailPath}
           seasons={detail.seasons!}
           initialPlayerUrl={detail.playerUrl}
           title={detail.title}

@@ -121,6 +121,35 @@ export const APIDetailResponseSchema = z.object({
   data: ContentDetailSchema,
 });
 
+// ============ Stream API Schemas ============
+
+/**
+ * Download source (MP4 with quality)
+ */
+export const DownloadSourceSchema = z.object({
+  url: z.string(),
+  resolution: z.number().optional(),
+  quality: z.number().optional(),
+});
+
+/**
+ * Caption/subtitle
+ */
+export const CaptionSchema = z.object({
+  language: z.string().catch("Unknown"),
+  url: z.string(),
+  languageCode: z.string().optional(),
+});
+
+/**
+ * Stream API response
+ */
+export const StreamResponseSchema = z.object({
+  success: z.boolean().catch(false),
+  downloads: z.array(DownloadSourceSchema).catch([]),
+  captions: z.array(CaptionSchema).catch([]),
+});
+
 // Types inferred from schemas
 export type ParsedContentItem = z.infer<typeof ContentItemSchema>;
 export type ParsedContentDetail = z.infer<typeof ContentDetailSchema>;
@@ -129,3 +158,6 @@ export type ParsedAPIDetailResponse = z.infer<typeof APIDetailResponseSchema>;
 export type ParsedEpisode = z.infer<typeof EpisodeSchema>;
 export type ParsedSeason = z.infer<typeof SeasonSchema>;
 export type ParsedCastMember = z.infer<typeof CastMemberSchema>;
+export type ParsedDownloadSource = z.infer<typeof DownloadSourceSchema>;
+export type ParsedCaption = z.infer<typeof CaptionSchema>;
+export type ParsedStreamResponse = z.infer<typeof StreamResponseSchema>;

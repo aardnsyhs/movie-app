@@ -1,47 +1,150 @@
 "use client";
 
-import { useState } from "react";
-import { Play } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Play, Loader2 } from "lucide-react";
 import { VideoPlayer } from "@/components";
-import type { ParsedSeason } from "@/lib/schemas";
+import { fetchStreamSources } from "@/lib/api";
+import type {
+  ParsedSeason,
+  ParsedDownloadSource,
+  ParsedCaption,
+} from "@/lib/schemas";
 
 interface EpisodePlayerProps {
+  contentId: string;
+  detailPath: string;
   seasons: ParsedSeason[];
   initialPlayerUrl?: string;
   title: string;
 }
 
+interface StreamState {
+  downloads: ParsedDownloadSource[];
+  captions: ParsedCaption[];
+  iframeFallbackUrl?: string;
+}
+
 export function EpisodePlayer({
+  contentId,
+  detailPath,
   seasons,
   initialPlayerUrl,
   title,
 }: EpisodePlayerProps) {
+  // Selected season index
   const [activeSeason, setActiveSeason] = useState(0);
-  const [activePlayerUrl, setActivePlayerUrl] = useState(
-    initialPlayerUrl || seasons[0]?.episodes[0]?.playerUrl || "",
+  // Selected episode number (1-based)
+  const [selectedEpisode, setSelectedEpisode] = useState(
+    seasons[0]?.episodes[0]?.episodeNumber ?? 1,
   );
-  const [activeEpisodeId, setActiveEpisodeId] = useState<string | null>(null);
+  // Stream loading state
+  const [isLoadingStream, setIsLoadingStream] = useState(true);
+  // Stream data
+  const [streamState, setStreamState] = useState<StreamState>({
+    downloads: [],
+    captions: [],
+    iframeFallbackUrl: initialPlayerUrl,
+  });
 
   const currentSeason = seasons[activeSeason];
+  const currentSeasonNumber = currentSeason?.seasonNumber ?? 1;
 
-  const handleEpisodeClick = (
-    playerUrl: string | undefined,
-    episodeId: string,
-  ) => {
-    if (playerUrl) {
-      setActivePlayerUrl(playerUrl);
-      setActiveEpisodeId(episodeId);
-      // Scroll to player
-      document.getElementById("player")?.scrollIntoView({ behavior: "smooth" });
-    }
+  /**
+   * Fetch stream sources for selected episode
+   */
+  const loadStreamSources = useCallback(
+    async (seasonNum: number, episodeNum: number) => {
+      setIsLoadingStream(true);
+
+      // Find the episode to get its playerUrl as fallback
+      const season = seasons.find((s) => s.seasonNumber === seasonNum);
+      const episode = season?.episodes.find(
+        (e) => e.episodeNumber === episodeNum,
+      );
+      const fallbackUrl = episode?.playerUrl || initialPlayerUrl;
+
+      try {
+        const result = await fetchStreamSources({
+          id: contentId,
+          detailPath,
+          season: seasonNum,
+          episode: episodeNum,
+        });
+
+        if (result.ok && result.data.downloads.length > 0) {
+          setStreamState({
+            downloads: result.data.downloads,
+            captions: result.data.captions,
+            iframeFallbackUrl: fallbackUrl,
+          });
+        } else {
+          // Use iframe fallback
+          setStreamState({
+            downloads: [],
+            captions: [],
+            iframeFallbackUrl: fallbackUrl,
+          });
+        }
+      } catch {
+        // Use iframe fallback on error
+        setStreamState({
+          downloads: [],
+          captions: [],
+          iframeFallbackUrl: fallbackUrl,
+        });
+      } finally {
+        setIsLoadingStream(false);
+      }
+    },
+    [contentId, detailPath, seasons, initialPlayerUrl],
+  );
+
+  // Load stream on mount and when episode changes
+  useEffect(() => {
+    loadStreamSources(currentSeasonNumber, selectedEpisode);
+  }, [currentSeasonNumber, selectedEpisode, loadStreamSources]);
+
+  /**
+   * Handle season tab click
+   */
+  const handleSeasonChange = (index: number) => {
+    setActiveSeason(index);
+    // Reset to first episode of new season
+    const firstEpisode = seasons[index]?.episodes[0]?.episodeNumber ?? 1;
+    setSelectedEpisode(firstEpisode);
+  };
+
+  /**
+   * Handle episode click
+   */
+  const handleEpisodeClick = (episodeNumber: number) => {
+    setSelectedEpisode(episodeNumber);
+    // Scroll to player
+    document.getElementById("player")?.scrollIntoView({ behavior: "smooth" });
   };
 
   return (
     <>
       {/* Video Player Section */}
       <section id="player" className="container-main py-8">
-        <h2 className="text-xl font-semibold mb-4">Watch</h2>
-        <VideoPlayer playerUrl={activePlayerUrl} title={title} />
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Watch</h2>
+          {/* Now Playing Indicator */}
+          <div className="flex items-center gap-2 text-sm text-[var(--foreground-muted)]">
+            {isLoadingStream && <Loader2 className="w-4 h-4 animate-spin" />}
+            <span className="px-3 py-1 bg-[var(--surface-secondary)] rounded-full">
+              Now playing: S{currentSeasonNumber} • E{selectedEpisode}
+            </span>
+          </div>
+        </div>
+
+        <VideoPlayer
+          title={title}
+          playerUrl={streamState.iframeFallbackUrl}
+          downloads={streamState.downloads}
+          captions={streamState.captions}
+          isLoading={isLoadingStream}
+        />
       </section>
 
       {/* Episodes Section */}
@@ -54,7 +157,7 @@ export function EpisodePlayer({
             {seasons.map((season, index) => (
               <button
                 key={season.id || index}
-                onClick={() => setActiveSeason(index)}
+                onClick={() => handleSeasonChange(index)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
                   activeSeason === index
                     ? "bg-[var(--accent-primary)] text-white"
@@ -71,15 +174,14 @@ export function EpisodePlayer({
         {currentSeason && (
           <div className="grid gap-3">
             {currentSeason.episodes.map((episode) => {
-              const episodeKey = `${currentSeason.seasonNumber}-${episode.episodeNumber}`;
-              const isActive = activeEpisodeId === episodeKey;
+              const isActive =
+                currentSeasonNumber === currentSeason.seasonNumber &&
+                selectedEpisode === episode.episodeNumber;
 
               return (
                 <button
-                  key={episode.id || episodeKey}
-                  onClick={() =>
-                    handleEpisodeClick(episode.playerUrl, episodeKey)
-                  }
+                  key={episode.id || episode.episodeNumber}
+                  onClick={() => handleEpisodeClick(episode.episodeNumber)}
                   className={`flex items-center gap-4 p-4 rounded-lg text-left transition-colors group ${
                     isActive
                       ? "bg-[var(--accent-primary)]/20 ring-2 ring-[var(--accent-primary)]"
@@ -108,6 +210,11 @@ export function EpisodePlayer({
                       </p>
                     )}
                   </div>
+                  {isActive && (
+                    <span className="text-xs text-[var(--accent-primary)] font-medium px-2 py-1 bg-[var(--accent-primary)]/10 rounded">
+                      Playing
+                    </span>
+                  )}
                 </button>
               );
             })}

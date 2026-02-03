@@ -1,13 +1,19 @@
 import {
   APIListResponseSchema,
   APIDetailResponseSchema,
+  StreamResponseSchema,
   type ParsedAPIListResponse,
   type ParsedContentDetail,
+  type ParsedStreamResponse,
 } from "./schemas";
 import type { Category } from "./types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://zeldvorik.ru/apiv3/api.php";
+
+const STREAM_API_BASE_URL =
+  process.env.NEXT_PUBLIC_STREAM_API_BASE_URL ||
+  "https://rebahan.web.id/sapi/stream.php";
 
 /**
  * API Result type for consistent error handling
@@ -143,6 +149,55 @@ export async function fetchDetail(
     }
 
     return { ok: true, data: parsed.data };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Stream source params
+ */
+export interface StreamParams {
+  id: string;
+  detailPath: string;
+  season: number;
+  episode: number;
+}
+
+/**
+ * Fetch stream sources (MP4 downloads + subtitles) for an episode
+ */
+export async function fetchStreamSources(
+  params: StreamParams,
+): Promise<ApiResult<ParsedStreamResponse>> {
+  const { id, season, episode, detailPath } = params;
+  const url = `${STREAM_API_BASE_URL}?id=${encodeURIComponent(id)}&season=${season}&episode=${episode}&detailPath=${encodeURIComponent(detailPath)}`;
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store", // Don't cache stream sources
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Stream API error: ${response.status}`,
+        status: response.status,
+      };
+    }
+
+    const json = await response.json();
+    const parsed = StreamResponseSchema.parse(json);
+
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: "Stream not available",
+      };
+    }
+
+    return { ok: true, data: parsed };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return { ok: false, error: message };
