@@ -3,29 +3,39 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Star, Play, Plus, ArrowLeft, Clock, Calendar } from "lucide-react";
+import {
+  Star,
+  Play,
+  Plus,
+  ArrowLeft,
+  Clock,
+  Calendar,
+  AlertCircle,
+} from "lucide-react";
 import { fetchDetail } from "@/lib/api";
 import { formatRating, truncateText } from "@/lib/utils";
-import { VideoPlayer, HeroSkeleton } from "@/components";
+import { VideoPlayer } from "@/components";
 import { DetailClient } from "./DetailClient";
+import { EpisodePlayer } from "./EpisodePlayer";
 
 interface DetailPageProps {
-  params: Promise<{ detailPath: string[] }>;
+  params: Promise<{ detailPath: string }>;
 }
 
 export async function generateMetadata({
   params,
 }: DetailPageProps): Promise<Metadata> {
   const resolvedParams = await params;
-  const detailPath = resolvedParams.detailPath.join("/");
-  const detail = await fetchDetail(detailPath);
+  const detailPath = resolvedParams.detailPath;
+  const result = await fetchDetail(detailPath);
 
-  if (!detail) {
+  if (!result.ok) {
     return {
       title: "Not Found",
     };
   }
 
+  const detail = result.data;
   const description = detail.description
     ? truncateText(detail.description, 160)
     : `Watch ${detail.title} on NoirFlix`;
@@ -48,16 +58,80 @@ export async function generateMetadata({
   };
 }
 
+/**
+ * Error state component for network/parse failures
+ */
+function ErrorState({
+  error,
+  detailPath,
+}: {
+  error: string;
+  detailPath: string;
+}) {
+  return (
+    <div className="min-h-[60vh] flex flex-col items-center justify-center container-main">
+      <AlertCircle className="w-16 h-16 text-[var(--accent-primary)] mb-4" />
+      <h1 className="text-2xl font-bold mb-2">Failed to Load Content</h1>
+      <p className="text-[var(--foreground-muted)] mb-6 text-center max-w-md">
+        {error}
+      </p>
+      <div className="flex gap-4">
+        <Link href="/" className="btn-secondary">
+          <ArrowLeft className="w-4 h-4" />
+          Back to Home
+        </Link>
+        <Link href={`/title/${detailPath}`} className="btn-primary">
+          Try Again
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Split genre string into array of badges
+ */
+function GenreBadges({ genre }: { genre: string }) {
+  if (!genre) return null;
+
+  const genres = genre
+    .split(",")
+    .map((g) => g.trim())
+    .filter(Boolean);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {genres.map((g) => (
+        <span
+          key={g}
+          className="px-2 py-1 text-xs rounded-full bg-[var(--surface-secondary)] text-[var(--foreground-muted)]"
+        >
+          {g}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default async function DetailPage({ params }: DetailPageProps) {
   const resolvedParams = await params;
-  const detailPath = resolvedParams.detailPath.join("/");
-  const detail = await fetchDetail(detailPath);
+  const detailPath = resolvedParams.detailPath;
+  const result = await fetchDetail(detailPath);
 
-  if (!detail) {
-    notFound();
+  // Handle errors
+  if (!result.ok) {
+    // Only show 404 for actual not-found errors
+    if (result.status === 404) {
+      notFound();
+    }
+    // Show error UI for network/parse errors
+    return <ErrorState error={result.error} detailPath={detailPath} />;
   }
 
+  const detail = result.data;
   const backdropImage = detail.backdrop || detail.poster;
+  const hasSeasons =
+    detail.type === "tv" && detail.seasons && detail.seasons.length > 0;
 
   return (
     <div className="-mt-16">
@@ -123,7 +197,7 @@ export default async function DetailPage({ params }: DetailPageProps) {
               </h1>
 
               {/* Meta Info */}
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mb-6 text-sm">
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mb-4 text-sm">
                 {detail.rating > 0 && (
                   <div className="flex items-center gap-1">
                     <Star className="w-5 h-5 text-[var(--accent-gold)] fill-[var(--accent-gold)]" />
@@ -144,11 +218,16 @@ export default async function DetailPage({ params }: DetailPageProps) {
                     <span>{detail.duration}</span>
                   </div>
                 )}
-                {detail.genre && (
+                {detail.country && (
                   <span className="text-[var(--foreground-muted)]">
-                    {detail.genre}
+                    {detail.country}
                   </span>
                 )}
+              </div>
+
+              {/* Genre Badges */}
+              <div className="flex justify-center md:justify-start mb-6">
+                <GenreBadges genre={detail.genre} />
               </div>
 
               {/* Description */}
@@ -173,53 +252,21 @@ export default async function DetailPage({ params }: DetailPageProps) {
         </div>
       </section>
 
-      {/* Video Player Section */}
-      <section id="player" className="container-main py-8">
-        <h2 className="text-xl font-semibold mb-4">Watch</h2>
-        <Suspense
-          fallback={<div className="aspect-video skeleton rounded-lg" />}
-        >
-          <VideoPlayer playerUrl={detail.playerUrl} title={detail.title} />
-        </Suspense>
-      </section>
-
-      {/* Episodes Section (for TV) */}
-      {detail.type === "tv" && detail.seasons && detail.seasons.length > 0 && (
-        <section className="container-main py-8">
-          <h2 className="text-xl font-semibold mb-6">Episodes</h2>
-          <div className="space-y-6">
-            {detail.seasons.map((season) => (
-              <div key={season.id || season.seasonNumber}>
-                <h3 className="text-lg font-medium mb-4 text-[var(--foreground-muted)]">
-                  {season.title || `Season ${season.seasonNumber}`}
-                </h3>
-                <div className="grid gap-3">
-                  {season.episodes.map((episode) => (
-                    <a
-                      key={episode.id || episode.episodeNumber}
-                      href={episode.playerUrl || "#player"}
-                      className="flex items-center gap-4 p-4 bg-[var(--surface-primary)] rounded-lg hover:bg-[var(--surface-hover)] transition-colors group"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-[var(--surface-secondary)] flex items-center justify-center group-hover:bg-[var(--accent-primary)] transition-colors">
-                        <Play className="w-4 h-4 fill-current" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">
-                          Episode {episode.episodeNumber}
-                          {episode.title && `: ${episode.title}`}
-                        </p>
-                        {episode.runtime && (
-                          <p className="text-sm text-[var(--foreground-muted)]">
-                            {episode.runtime}
-                          </p>
-                        )}
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* Video Player & Episodes Section */}
+      {hasSeasons ? (
+        <EpisodePlayer
+          seasons={detail.seasons!}
+          initialPlayerUrl={detail.playerUrl}
+          title={detail.title}
+        />
+      ) : (
+        <section id="player" className="container-main py-8">
+          <h2 className="text-xl font-semibold mb-4">Watch</h2>
+          <Suspense
+            fallback={<div className="aspect-video skeleton rounded-lg" />}
+          >
+            <VideoPlayer playerUrl={detail.playerUrl} title={detail.title} />
+          </Suspense>
         </section>
       )}
     </div>

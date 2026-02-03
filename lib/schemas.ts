@@ -6,44 +6,106 @@ import { z } from "zod";
 
 export const ContentTypeSchema = z.enum(["movie", "tv"]).catch("movie");
 
+/**
+ * Normalize rating: API may return string or number
+ */
+const ratingSchema = z
+  .union([z.string(), z.number()])
+  .transform((val) => {
+    if (typeof val === "string") {
+      const parsed = parseFloat(val);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return val;
+  })
+  .catch(0);
+
+/**
+ * Normalize year: API may return string or number
+ */
+const yearSchema = z
+  .union([z.string(), z.number()])
+  .transform((val) => String(val))
+  .catch("");
+
 export const ContentItemSchema = z.object({
   id: z.string().catch(""),
   title: z.string().catch("Untitled"),
   poster: z.string().catch(""),
-  rating: z.number().catch(0),
-  year: z.string().catch(""),
+  rating: ratingSchema,
+  year: yearSchema,
   type: ContentTypeSchema,
   genre: z.string().catch(""),
   detailPath: z.string().catch(""),
 });
 
-export const EpisodeSchema = z.object({
-  id: z.string().catch(""),
-  title: z.string().catch(""),
-  episodeNumber: z.number().catch(1),
-  runtime: z.string().optional(),
-  playerUrl: z.string().optional(),
+/**
+ * Cast member schema
+ */
+export const CastMemberSchema = z.object({
+  name: z.string().catch(""),
+  character: z.string().optional(),
+  avatar: z.string().optional(),
 });
 
-export const SeasonSchema = z.object({
-  id: z.string().catch(""),
-  seasonNumber: z.number().catch(1),
-  title: z.string().catch(""),
-  episodes: z.array(EpisodeSchema).catch([]),
-});
+/**
+ * Episode schema - maps API field `episode` to `episodeNumber`
+ */
+export const EpisodeSchema = z
+  .object({
+    id: z.string().optional(),
+    title: z.string().catch(""),
+    episode: z.number().optional(),
+    episodeNumber: z.number().optional(),
+    runtime: z.string().optional(),
+    playerUrl: z.string().optional(),
+    cover: z.string().optional(),
+  })
+  .transform((ep) => ({
+    id: ep.id || "",
+    title: ep.title,
+    episodeNumber: ep.episode ?? ep.episodeNumber ?? 1,
+    runtime: ep.runtime,
+    playerUrl: ep.playerUrl,
+    cover: ep.cover,
+  }));
+
+/**
+ * Season schema - maps API field `season` to `seasonNumber`
+ */
+export const SeasonSchema = z
+  .object({
+    id: z.string().optional(),
+    season: z.number().optional(),
+    seasonNumber: z.number().optional(),
+    title: z.string().optional(),
+    episodes: z.array(EpisodeSchema).catch([]),
+  })
+  .transform((s) => ({
+    id: s.id || "",
+    seasonNumber: s.season ?? s.seasonNumber ?? 1,
+    title: s.title || "",
+    episodes: s.episodes,
+  }));
 
 export const ContentDetailSchema = z.object({
   id: z.string().catch(""),
   title: z.string().catch("Untitled"),
   poster: z.string().catch(""),
   backdrop: z.string().optional(),
-  rating: z.number().catch(0),
-  year: z.string().catch(""),
+  rating: ratingSchema,
+  year: yearSchema,
   type: ContentTypeSchema,
   genre: z.string().catch(""),
   description: z.string().catch(""),
-  duration: z.string().optional(),
+  duration: z
+    .union([z.string(), z.number()])
+    .transform((val) => (val ? String(val) : undefined))
+    .optional(),
   playerUrl: z.string().optional(),
+  country: z.string().optional(),
+  detailPath: z.string().optional(),
+  cast: z.array(CastMemberSchema).optional(),
   seasons: z.array(SeasonSchema).optional(),
 });
 
@@ -64,3 +126,6 @@ export type ParsedContentItem = z.infer<typeof ContentItemSchema>;
 export type ParsedContentDetail = z.infer<typeof ContentDetailSchema>;
 export type ParsedAPIListResponse = z.infer<typeof APIListResponseSchema>;
 export type ParsedAPIDetailResponse = z.infer<typeof APIDetailResponseSchema>;
+export type ParsedEpisode = z.infer<typeof EpisodeSchema>;
+export type ParsedSeason = z.infer<typeof SeasonSchema>;
+export type ParsedCastMember = z.infer<typeof CastMemberSchema>;

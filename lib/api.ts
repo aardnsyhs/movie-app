@@ -10,6 +10,13 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://zeldvorik.ru/apiv3/api.php";
 
 /**
+ * API Result type for consistent error handling
+ */
+export type ApiResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; status?: number };
+
+/**
  * Generic fetch wrapper with error handling
  */
 async function fetchAPI<T>(
@@ -104,20 +111,41 @@ export async function searchContent(
 }
 
 /**
- * Fetch content detail
+ * Fetch content detail with proper error handling
  */
 export async function fetchDetail(
   detailPath: string,
-): Promise<ParsedContentDetail | null> {
+): Promise<ApiResult<ParsedContentDetail>> {
   const url = `${API_BASE_URL}?action=detail&detailPath=${encodeURIComponent(detailPath)}`;
+
   try {
-    const response = await fetchAPI(url, (data) =>
-      APIDetailResponseSchema.parse(data),
-    );
-    if (!response.success) return null;
-    return response.data;
-  } catch {
-    return null;
+    const response = await fetch(url, {
+      next: { revalidate: 300 },
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `API error: ${response.status}`,
+        status: response.status,
+      };
+    }
+
+    const json = await response.json();
+    const parsed = APIDetailResponseSchema.parse(json);
+
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: "Content not found",
+        status: 404,
+      };
+    }
+
+    return { ok: true, data: parsed.data };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return { ok: false, error: message };
   }
 }
 
