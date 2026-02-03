@@ -1,157 +1,56 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import {
-  Star,
-  Play,
-  Plus,
-  ArrowLeft,
-  Clock,
-  Calendar,
-  AlertCircle,
-} from "lucide-react";
-import { fetchDetail } from "@/lib/api";
-import { formatRating, truncateText } from "@/lib/utils";
-import { VideoPlayer } from "@/components";
-import { BackdropImage, PosterImage } from "@/components/content/PosterImage";
-import { DetailClient } from "./DetailClient";
-import { EpisodePlayer } from "./EpisodePlayer";
+import { ArrowLeft } from "lucide-react";
+import { DetailPageClient } from "./DetailClient";
 
 interface DetailPageProps {
   params: Promise<{ detailPath: string }>;
 }
 
+/**
+ * Static metadata - NO fetch blocking
+ * SEO is based on detailPath slug only for fast TTFB
+ */
 export async function generateMetadata({
   params,
 }: DetailPageProps): Promise<Metadata> {
   const resolvedParams = await params;
   const detailPath = resolvedParams.detailPath;
-  const result = await fetchDetail(detailPath);
 
-  if (!result.ok) {
-    return {
-      title: "Not Found",
-    };
-  }
-
-  const detail = result.data;
-  const description = detail.description
-    ? truncateText(detail.description, 160)
-    : `Watch ${detail.title} on NoirFlix`;
+  // Extract title from detailPath slug (e.g., "agen-62-Kz4X1EN6d3a" -> "Agen 62")
+  const titleFromSlug =
+    detailPath
+      .split("-")
+      .slice(0, -1) // Remove the ID suffix
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ") || "Watch";
 
   return {
-    title: `${detail.title} (${detail.year || "N/A"})`,
-    description,
+    title: `${titleFromSlug} - NoirFlix`,
+    description: `Watch ${titleFromSlug} on NoirFlix - Your premium streaming destination`,
     openGraph: {
-      title: `${detail.title} (${detail.year || "N/A"})`,
-      description,
-      images: detail.poster ? [{ url: detail.poster }] : undefined,
+      title: `${titleFromSlug} - NoirFlix`,
+      description: `Watch ${titleFromSlug} on NoirFlix`,
       type: "video.movie",
     },
     twitter: {
       card: "summary_large_image",
-      title: `${detail.title} (${detail.year || "N/A"})`,
-      description,
-      images: detail.poster ? [detail.poster] : undefined,
+      title: `${titleFromSlug} - NoirFlix`,
     },
   };
 }
 
 /**
- * Error state component for network/parse failures
+ * Loading skeleton for detail page
  */
-function ErrorState({
-  error,
-  detailPath,
-}: {
-  error: string;
-  detailPath: string;
-}) {
-  return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center container-main">
-      <AlertCircle className="w-16 h-16 text-[var(--accent-primary)] mb-4" />
-      <h1 className="text-2xl font-bold mb-2">Failed to Load Content</h1>
-      <p className="text-[var(--foreground-muted)] mb-6 text-center max-w-md">
-        {error}
-      </p>
-      <div className="flex gap-4">
-        <Link href="/" className="btn-secondary">
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </Link>
-        <Link href={`/title/${detailPath}`} className="btn-primary">
-          Try Again
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Split genre string into array of badges
- */
-function GenreBadges({ genre }: { genre: string }) {
-  if (!genre) return null;
-
-  const genres = genre
-    .split(",")
-    .map((g) => g.trim())
-    .filter(Boolean);
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {genres.map((g) => (
-        <span
-          key={g}
-          className="px-2 py-1 text-xs rounded-full bg-[var(--surface-secondary)] text-[var(--foreground-muted)]"
-        >
-          {g}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-export default async function DetailPage({ params }: DetailPageProps) {
-  const resolvedParams = await params;
-  const detailPath = resolvedParams.detailPath;
-  const result = await fetchDetail(detailPath);
-
-  // Handle errors
-  if (!result.ok) {
-    // Only show 404 for actual not-found errors
-    if (result.status === 404) {
-      notFound();
-    }
-    // Show error UI for network/parse errors
-    return <ErrorState error={result.error} detailPath={detailPath} />;
-  }
-
-  const detail = result.data;
-  const backdropImage = detail.backdrop || detail.poster;
-  const hasSeasons =
-    detail.type === "tv" && detail.seasons && detail.seasons.length > 0;
-
+function DetailSkeleton() {
   return (
     <div className="-mt-16">
-      {/* Hero Background */}
+      {/* Hero Background Skeleton */}
       <section className="relative min-h-[70vh] flex items-end">
-        {/* Background Image */}
-        {backdropImage && (
-          <div className="absolute inset-0">
-            <BackdropImage
-              src={backdropImage}
-              alt=""
-              className="object-cover object-top"
-              priority
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[var(--background)] via-[var(--background)]/70 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/30 to-transparent" />
-          </div>
-        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-[var(--surface-secondary)] to-[var(--background)]" />
 
-        {/* Content */}
         <div className="relative container-main pb-12 pt-32">
           {/* Back Button */}
           <Link
@@ -163,112 +62,75 @@ export default async function DetailPage({ params }: DetailPageProps) {
           </Link>
 
           <div className="flex flex-col md:flex-row gap-8">
-            {/* Poster */}
+            {/* Poster Skeleton */}
             <div className="flex-shrink-0 w-48 md:w-64 mx-auto md:mx-0">
-              {detail.poster ? (
-                <div className="relative aspect-[2/3] rounded-lg overflow-hidden shadow-2xl">
-                  <PosterImage
-                    src={detail.poster}
-                    alt={detail.title}
-                    fill
-                    className="object-cover"
-                    priority
-                  />
-                </div>
-              ) : (
-                <div className="aspect-[2/3] rounded-lg bg-[var(--surface-primary)] flex items-center justify-center">
-                  <Play className="w-16 h-16 text-[var(--foreground-subtle)]" />
-                </div>
-              )}
+              <div className="aspect-[2/3] rounded-lg skeleton" />
             </div>
 
-            {/* Info */}
+            {/* Info Skeleton */}
             <div className="flex-1 text-center md:text-left">
               {/* Type Badge */}
-              <span className="badge badge-accent mb-3 uppercase text-xs tracking-wider">
-                {detail.type === "tv" ? "TV Series" : "Movie"}
-              </span>
+              <div className="h-6 w-20 skeleton rounded-full mb-3 mx-auto md:mx-0" />
 
               {/* Title */}
-              <h1 className="text-3xl md:text-5xl font-bold mb-4">
-                {detail.title}
-              </h1>
+              <div className="h-12 w-3/4 skeleton rounded mb-4 mx-auto md:mx-0" />
 
               {/* Meta Info */}
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mb-4 text-sm">
-                {detail.rating > 0 && (
-                  <div className="flex items-center gap-1">
-                    <Star className="w-5 h-5 text-[var(--accent-gold)] fill-[var(--accent-gold)]" />
-                    <span className="font-semibold">
-                      {formatRating(detail.rating)}
-                    </span>
-                  </div>
-                )}
-                {detail.year && (
-                  <div className="flex items-center gap-1 text-[var(--foreground-muted)]">
-                    <Calendar className="w-4 h-4" />
-                    <span>{detail.year}</span>
-                  </div>
-                )}
-                {detail.duration && (
-                  <div className="flex items-center gap-1 text-[var(--foreground-muted)]">
-                    <Clock className="w-4 h-4" />
-                    <span>{detail.duration}</span>
-                  </div>
-                )}
-                {detail.country && (
-                  <span className="text-[var(--foreground-muted)]">
-                    {detail.country}
-                  </span>
-                )}
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mb-4">
+                <div className="h-6 w-16 skeleton rounded" />
+                <div className="h-6 w-20 skeleton rounded" />
+                <div className="h-6 w-24 skeleton rounded" />
               </div>
 
               {/* Genre Badges */}
-              <div className="flex justify-center md:justify-start mb-6">
-                <GenreBadges genre={detail.genre} />
+              <div className="flex justify-center md:justify-start gap-2 mb-6">
+                <div className="h-6 w-16 skeleton rounded-full" />
+                <div className="h-6 w-20 skeleton rounded-full" />
+                <div className="h-6 w-14 skeleton rounded-full" />
               </div>
 
               {/* Description */}
-              <DetailClient
-                description={detail.description}
-                detailPath={detailPath}
-              />
+              <div className="space-y-2 mb-6">
+                <div className="h-4 w-full skeleton rounded" />
+                <div className="h-4 w-5/6 skeleton rounded" />
+                <div className="h-4 w-4/6 skeleton rounded" />
+              </div>
 
               {/* CTA Buttons */}
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-6">
-                <a href="#player" className="btn-primary">
-                  <Play className="w-5 h-5 fill-current" />
-                  Watch Now
-                </a>
-                <button className="btn-secondary">
-                  <Plus className="w-5 h-5" />
-                  Add to List
-                </button>
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
+                <div className="h-12 w-32 skeleton rounded-lg" />
+                <div className="h-12 w-32 skeleton rounded-lg" />
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Video Player & Episodes Section */}
-      {hasSeasons ? (
-        <EpisodePlayer
-          contentId={detail.id}
-          detailPath={detailPath}
-          seasons={detail.seasons!}
-          initialPlayerUrl={detail.playerUrl}
-          title={detail.title}
-        />
-      ) : (
-        <section id="player" className="container-main py-8">
-          <h2 className="text-xl font-semibold mb-4">Watch</h2>
-          <Suspense
-            fallback={<div className="aspect-video skeleton rounded-lg" />}
-          >
-            <VideoPlayer embedSrc={detail.playerUrl} title={detail.title} />
-          </Suspense>
-        </section>
-      )}
+      {/* Player Skeleton */}
+      <section className="container-main py-8">
+        <div className="h-8 w-24 skeleton rounded mb-4" />
+        <div className="aspect-video skeleton rounded-lg" />
+      </section>
     </div>
+  );
+}
+
+/**
+ * Detail Page - Shell-first architecture
+ *
+ * Server Component renders:
+ * - Skeleton UI instantly
+ * - Mounts DetailPageClient which fetches data via SWR
+ *
+ * NO blocking await fetchDetail() - TTFB is instant
+ */
+export default async function DetailPage({ params }: DetailPageProps) {
+  const resolvedParams = await params;
+  const detailPath = resolvedParams.detailPath;
+
+  return (
+    <Suspense fallback={<DetailSkeleton />}>
+      <DetailPageClient detailPath={detailPath} />
+    </Suspense>
   );
 }
