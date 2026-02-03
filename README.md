@@ -1,36 +1,115 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NoirFlix - Premium Streaming Web App
+
+A production-ready streaming web application built with Next.js, featuring a premium dark theme UI inspired by Netflix and Disney+.
+
+## Tech Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS v4
+- **Animations**: Framer Motion
+- **Data Fetching**: SWR
+- **Validation**: Zod
+- **Icons**: Lucide React
+
+## Features
+
+- 🎬 **Hero Slider** - Animated carousel for trending content
+- 📱 **Responsive Design** - Mobile-first approach with premium dark theme
+- 🔍 **Search** - Debounced search with real-time results
+- 📺 **Content Rails** - Horizontal scrollable content sections
+- 🎥 **Video Player** - Embedded player with error handling
+- ♾️ **Infinite Scroll** - Load more content seamlessly
+- 📋 **Watchlist** - Local storage-based watchlist
+- 🎯 **SEO Optimized** - Dynamic metadata for all pages
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- pnpm (recommended)
+
+### Installation
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Clone the repository
+git clone <repo-url>
+cd movie-app
+
+# Install dependencies
+pnpm install
+
+# Create environment file
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment Variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Create a `.env.local` file:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+NEXT_PUBLIC_API_BASE_URL=https://zeldvorik.ru/apiv3/api.php
+```
 
-## Learn More
+### Development
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# Start development server
+pnpm dev
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Open http://localhost:3000
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Build
 
-## Deploy on Vercel
+```bash
+# Create production build
+pnpm build
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Start production server
+pnpm start
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project Structure
+
+```
+movie-app/
+├── app/                    # Next.js App Router
+│   ├── layout.tsx          # Root layout with navbar/footer
+│   ├── page.tsx            # Home page
+│   ├── HomeContent.tsx     # Client-side category grid
+│   ├── globals.css         # Premium dark theme styles
+│   ├── search/             # Search page
+│   └── title/[...detailPath]/  # Detail page
+├── components/
+│   ├── layout/             # Navbar, Footer
+│   └── content/            # ContentCard, Grid, Rail, Hero
+├── lib/
+│   ├── api.ts              # API client functions
+│   ├── schemas.ts          # Zod validation schemas
+│   ├── types.ts            # TypeScript interfaces
+│   └── utils.ts            # Utility functions
+├── hooks/
+│   ├── useDebounce.ts      # Debounce hook
+│   ├── useInfiniteScroll.ts # Intersection Observer hook
+│   └── useWatchlist.ts     # LocalStorage watchlist hook
+└── public/                 # Static assets
+```
+
+## API Endpoints
+
+| Endpoint        | Action                             |
+| --------------- | ---------------------------------- |
+| Trending        | `?action=trending&page=1`          |
+| Film Indonesia  | `?action=indonesian-movies&page=1` |
+| Drama Indonesia | `?action=indonesian-drama&page=1`  |
+| K-Drama         | `?action=kdrama&page=1`            |
+| Short TV        | `?action=short-tv&page=1`          |
+| Anime           | `?action=anime&page=1`             |
+| Search          | `?action=search&q={query}`         |
+| Detail          | `?action=detail&detailPath={path}` |
+
+## License
+
+MIT
