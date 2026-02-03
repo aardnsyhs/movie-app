@@ -4,16 +4,16 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Play, Loader2, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { VideoPlayer, type PlaybackMode } from "@/components";
+import { VideoPlayer } from "@/components";
 import { EpisodeBrowser } from "@/components/content/EpisodeBrowser";
-import { fetchStreamSources } from "@/lib/api";
-import { getPlayerBaseUrlFromAnyPlayerUrl, buildPlayerUrl } from "@/lib/utils";
+import {
+  getPlayerBaseUrlFromAnyPlayerUrl,
+  buildPlayerUrl,
+  assertNoBlockedDomain,
+} from "@/lib/utils";
+import { getPlayerBaseUrl } from "@/lib/api";
 import { useLastWatched } from "@/hooks/useLastWatched";
-import type {
-  ParsedSeason,
-  ParsedDownloadSource,
-  ParsedCaption,
-} from "@/lib/schemas";
+import type { ParsedSeason } from "@/lib/schemas";
 
 interface EpisodePlayerProps {
   contentId: string;
@@ -21,12 +21,6 @@ interface EpisodePlayerProps {
   seasons: ParsedSeason[];
   initialPlayerUrl?: string;
   title: string;
-}
-
-interface StreamState {
-  downloads: ParsedDownloadSource[];
-  captions: ParsedCaption[];
-  playerUrl?: string;
 }
 
 /**
@@ -76,16 +70,11 @@ export function EpisodePlayer({
   // Last watched hook (stable - no infinite loop)
   const { lastWatched, updateLastWatched } = useLastWatched(detailPath);
 
-  // Stream loading state
-  const [isLoadingStream, setIsLoadingStream] = useState(true);
-  const [streamState, setStreamState] = useState<StreamState>({
-    downloads: [],
-    captions: [],
-    playerUrl: initialPlayerUrl,
-  });
-
-  // Playback mode: embed (default) or direct (beta)
-  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("embed");
+  // Player URL state (embed-first, no direct stream)
+  const [currentPlayerUrl, setCurrentPlayerUrl] = useState<string | undefined>(
+    initialPlayerUrl,
+  );
+  const [isLoadingPlayer, setIsLoadingPlayer] = useState(false);
 
   // Get first season/episode as fallback
   const firstSeason = seasons[0]?.seasonNumber ?? 1;
@@ -172,8 +161,9 @@ export function EpisodePlayer({
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [selectedSeason, selectedEpisode, pathname, router, searchParams]);
 
-  // Derive player base URL from any available playerUrl
+  // Derive player base URL from any available playerUrl or ENV
   const playerBaseUrl = useMemo(() => {
+    // Priority 1: Extract from episode playerUrl
     for (const season of seasons) {
       for (const ep of season.episodes) {
         if (ep.playerUrl) {
@@ -181,85 +171,60 @@ export function EpisodePlayer({
         }
       }
     }
+    // Priority 2: Extract from initialPlayerUrl
     if (initialPlayerUrl) {
       return getPlayerBaseUrlFromAnyPlayerUrl(initialPlayerUrl);
     }
-    return null;
+    // Priority 3: Use ENV fallback
+    return getPlayerBaseUrl();
   }, [seasons, initialPlayerUrl]);
 
   /**
-   * Compute the player URL for current episode
+   * Compute the player URL for current episode (embed-first)
    */
   const computePlayerUrl = useCallback(
-    (seasonNum: number, episodeNum: number): string | undefined => {
+    (seasonNum: number, episodeNum: number): string => {
       const episode = findEpisode(seasons, seasonNum, episodeNum);
 
+      // Priority 1: Use episode's playerUrl if available
       if (episode?.playerUrl) {
+        assertNoBlockedDomain(episode.playerUrl, "episode.playerUrl");
         return episode.playerUrl;
       }
 
-      if (playerBaseUrl) {
-        return buildPlayerUrl({
-          base: playerBaseUrl,
-          id: contentId,
-          detailPath,
-          season: seasonNum,
-          episode: episodeNum,
-        });
-      }
+      // Priority 2: Build URL from base
+      const url = buildPlayerUrl({
+        base: playerBaseUrl,
+        id: contentId,
+        detailPath,
+        season: seasonNum,
+        episode: episodeNum,
+      });
 
-      return initialPlayerUrl;
+      assertNoBlockedDomain(url, "computePlayerUrl");
+      return url;
     },
-    [seasons, playerBaseUrl, contentId, detailPath, initialPlayerUrl],
+    [seasons, playerBaseUrl, contentId, detailPath],
   );
 
   /**
-   * Fetch stream sources for selected episode
+   * Update player URL when episode changes (no external API call)
    */
-  const loadStreamSources = useCallback(
-    async (seasonNum: number, episodeNum: number) => {
-      setIsLoadingStream(true);
-
-      const fallbackUrl = computePlayerUrl(seasonNum, episodeNum);
-
-      try {
-        const result = await fetchStreamSources({
-          id: contentId,
-          detailPath,
-          season: seasonNum,
-          episode: episodeNum,
-        });
-
-        if (result.ok && result.data.downloads.length > 0) {
-          setStreamState({
-            downloads: result.data.downloads,
-            captions: result.data.captions,
-            playerUrl: fallbackUrl,
-          });
-        } else {
-          setStreamState({
-            downloads: [],
-            captions: [],
-            playerUrl: fallbackUrl,
-          });
-        }
-      } catch {
-        setStreamState({
-          downloads: [],
-          captions: [],
-          playerUrl: fallbackUrl,
-        });
-      } finally {
-        setIsLoadingStream(false);
-      }
+  const updatePlayerUrl = useCallback(
+    (seasonNum: number, episodeNum: number) => {
+      setIsLoadingPlayer(true);
+      const url = computePlayerUrl(seasonNum, episodeNum);
+      setCurrentPlayerUrl(url);
+      // Small delay to show loading state for smooth UX
+      setTimeout(() => setIsLoadingPlayer(false), 100);
     },
-    [contentId, detailPath, computePlayerUrl],
+    [computePlayerUrl],
   );
 
-  // Load stream when episode changes
+  // Update player URL when episode changes
   useEffect(() => {
-    loadStreamSources(selectedSeason, selectedEpisode);
-  }, [selectedSeason, selectedEpisode, loadStreamSources]);
+    updatePlayerUrl(selectedSeason, selectedEpisode);
+  }, [selectedSeason, selectedEpisode, updatePlayerUrl]);
 
   /**
    * Handle season change from EpisodeBrowser
@@ -324,7 +289,7 @@ export function EpisodePlayer({
                   exit={{ opacity: 0, y: 10 }}
                   className="flex items-center gap-2 text-sm text-[var(--foreground-muted)]"
                 >
-                  {isLoadingStream && (
+                  {isLoadingPlayer && (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   )}
                   <span className="px-3 py-1 bg-[var(--surface-secondary)] rounded-full">
@@ -336,13 +301,9 @@ export function EpisodePlayer({
 
             <VideoPlayer
               title={title}
-              embedSrc={streamState.playerUrl}
-              directSources={streamState.downloads}
-              captions={streamState.captions}
-              isLoading={isLoadingStream}
+              embedSrc={currentPlayerUrl}
+              isLoading={isLoadingPlayer}
               playerKey={playerKey}
-              mode={playbackMode}
-              onModeChange={setPlaybackMode}
             />
 
             {/* Continue Watching Button (mobile) */}

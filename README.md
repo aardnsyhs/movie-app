@@ -50,6 +50,7 @@ Create a `.env.local` file:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=https://zeldvorik.ru/apiv3/api.php
+NEXT_PUBLIC_PLAYER_BASE_URL=https://zeldvorik.ru/apiv3
 ```
 
 ### Development

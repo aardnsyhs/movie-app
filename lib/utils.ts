@@ -2,6 +2,39 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 /**
+ * Blocklisted domains that should never be used for playback
+ */
+const BLOCKED_DOMAINS = ["rebahan.web.id", "hakunaymatata.com"];
+
+/**
+ * Assert that a URL does not contain any blocked domains.
+ * In development mode, throws an error. In production, logs a console error.
+ * @param url - The URL to check
+ * @param context - Optional context for the error message
+ */
+export function assertNoBlockedDomain(url: string, context?: string): void {
+  const lowerUrl = url.toLowerCase();
+  for (const domain of BLOCKED_DOMAINS) {
+    if (lowerUrl.includes(domain)) {
+      const message = `[NoirFlix] BLOCKED: URL contains '${domain}'${context ? ` (${context})` : ""}: ${url}`;
+      if (process.env.NODE_ENV === "development") {
+        throw new Error(message);
+      } else {
+        console.error(message);
+      }
+    }
+  }
+}
+
+/**
+ * Check if a URL is safe (not from blocked domains)
+ */
+export function isSafeUrl(url: string): boolean {
+  const lowerUrl = url.toLowerCase();
+  return !BLOCKED_DOMAINS.some((domain) => lowerUrl.includes(domain));
+}
+
+/**
  * Merge Tailwind classes with clsx
  */
 export function cn(...inputs: ClassValue[]) {
