@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   AlertCircle,
   RefreshCw,
@@ -8,16 +8,28 @@ import {
   Download,
   ChevronDown,
   ExternalLink,
+  Play,
+  Monitor,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { ParsedDownloadSource, ParsedCaption } from "@/lib/schemas";
+
+/** Playback mode: embed (iframe) or direct (video element) */
+export type PlaybackMode = "embed" | "direct";
 
 interface VideoPlayerProps {
   title: string;
-  playerUrl?: string; // Fallback iframe URL
-  downloads?: ParsedDownloadSource[];
+  /** Embed player URL (iframe src) - primary/reliable source */
+  embedSrc?: string;
+  /** Direct MP4 URLs - optional, may fail with 403 */
+  directSources?: ParsedDownloadSource[];
   captions?: ParsedCaption[];
   isLoading?: boolean;
-  /** Unique key to force iframe remount (e.g., `${id}-${season}-${episode}`) */
+  /** Current playback mode */
+  mode?: PlaybackMode;
+  /** Callback when mode should change (e.g., direct failed → embed) */
+  onModeChange?: (mode: PlaybackMode) => void;
+  /** Unique key to force remount (e.g., `${id}-${season}-${episode}`) */
   playerKey?: string;
 }
 
@@ -50,24 +62,58 @@ function isVttCaption(url: string): boolean {
 }
 
 /**
- * Inner player component that resets state when key changes
+ * Toast notification for mode switch
+ */
+function ModeSwithToast({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      className="absolute bottom-4 left-4 right-4 z-20 bg-[var(--surface-secondary)] border border-[var(--border-primary)] rounded-lg px-4 py-3 shadow-lg"
+    >
+      <p className="text-sm text-[var(--foreground-muted)]">{message}</p>
+    </motion.div>
+  );
+}
+
+/**
+ * Inner player component that handles the actual playback
  */
 function VideoPlayerInner({
   title,
-  playerUrl,
-  downloads,
+  embedSrc,
+  directSources,
   captions,
   isLoading = false,
+  mode = "embed",
+  onModeChange,
 }: Omit<VideoPlayerProps, "playerKey">) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const iframeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // UI states
   const [hasError, setHasError] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
+  const [videoLoading, setVideoLoading] = useState(true);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [selectedQualityIndex, setSelectedQualityIndex] = useState(0);
-  const [useIframeFallback, setUseIframeFallback] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [directFailedOnce, setDirectFailedOnce] = useState(false);
 
-  const sortedDownloads = downloads ? sortByQuality(downloads) : [];
-  const hasDirectMP4 = sortedDownloads.length > 0 && !useIframeFallback;
+  const sortedDownloads = directSources ? sortByQuality(directSources) : [];
+  const hasDirectSources = sortedDownloads.length > 0;
   const currentSource = sortedDownloads[selectedQualityIndex];
 
   // VTT captions for <track>
@@ -75,17 +121,107 @@ function VideoPlayerInner({
   // SRT captions (show as download links)
   const srtCaptions = captions?.filter((c) => !isVttCaption(c.url)) || [];
 
-  // Handle iframe error
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (iframeTimeoutRef.current) {
+        clearTimeout(iframeTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Setup iframe load timeout (10s)
+  useEffect(() => {
+    if (mode === "embed" && iframeLoading && embedSrc) {
+      iframeTimeoutRef.current = setTimeout(() => {
+        if (iframeLoading) {
+          setHasError(true);
+          setIframeLoading(false);
+        }
+      }, 10000);
+
+      return () => {
+        if (iframeTimeoutRef.current) {
+          clearTimeout(iframeTimeoutRef.current);
+        }
+      };
+    }
+  }, [mode, iframeLoading, embedSrc]);
+
+  /**
+   * Handle direct video error - auto fallback to embed
+   */
+  const handleVideoError = () => {
+    setVideoLoading(false);
+    setDirectFailedOnce(true);
+
+    if (embedSrc && onModeChange) {
+      setToastMessage("Direct video blocked by CDN. Switched to embed player.");
+      onModeChange("embed");
+    } else {
+      setHasError(true);
+    }
+  };
+
+  /**
+   * Handle iframe load success
+   */
+  const handleIframeLoad = () => {
+    setIframeLoading(false);
+    if (iframeTimeoutRef.current) {
+      clearTimeout(iframeTimeoutRef.current);
+    }
+  };
+
+  /**
+   * Handle iframe error
+   */
   const handleIframeError = () => {
     setIframeLoading(false);
     setHasError(true);
+    if (iframeTimeoutRef.current) {
+      clearTimeout(iframeTimeoutRef.current);
+    }
   };
 
-  // Open player in new tab
+  /**
+   * Open embed player in new tab
+   */
   const handleOpenInNewTab = () => {
-    if (playerUrl) {
-      window.open(playerUrl, "_blank", "noopener,noreferrer");
+    if (embedSrc) {
+      window.open(embedSrc, "_blank", "noopener,noreferrer");
     }
+  };
+
+  /**
+   * Retry loading
+   */
+  const handleRetry = () => {
+    setHasError(false);
+    if (mode === "embed") {
+      setIframeLoading(true);
+    } else {
+      setVideoLoading(true);
+    }
+  };
+
+  /**
+   * Switch to embed mode
+   */
+  const handleSwitchToEmbed = () => {
+    setHasError(false);
+    setIframeLoading(true);
+    onModeChange?.("embed");
+  };
+
+  /**
+   * Switch to direct mode (beta)
+   */
+  const handleSwitchToDirect = () => {
+    if (!hasDirectSources) return;
+    setHasError(false);
+    setVideoLoading(true);
+    onModeChange?.("direct");
   };
 
   /**
@@ -99,7 +235,6 @@ function VideoPlayerInner({
     setSelectedQualityIndex(index);
     setShowQualityMenu(false);
 
-    // Restore playback position after source change
     setTimeout(() => {
       const newVideo = videoRef.current;
       if (newVideo) {
@@ -111,7 +246,9 @@ function VideoPlayerInner({
     }, 100);
   };
 
-  // Loading state
+  // ═══════════════════════════════════════════════════════════════════
+  // LOADING STATE
+  // ═══════════════════════════════════════════════════════════════════
   if (isLoading) {
     return (
       <div className="relative aspect-video bg-[var(--surface-primary)] rounded-lg overflow-hidden">
@@ -122,8 +259,10 @@ function VideoPlayerInner({
     );
   }
 
-  // No video available
-  if (!hasDirectMP4 && !playerUrl) {
+  // ═══════════════════════════════════════════════════════════════════
+  // NO VIDEO AVAILABLE
+  // ═══════════════════════════════════════════════════════════════════
+  if (!embedSrc && !hasDirectSources) {
     return (
       <div className="aspect-video bg-[var(--surface-primary)] rounded-lg flex items-center justify-center">
         <p className="text-[var(--foreground-muted)]">Video not available</p>
@@ -131,28 +270,41 @@ function VideoPlayerInner({
     );
   }
 
-  // Error state (for MP4)
-  if (hasError && hasDirectMP4) {
+  // ═══════════════════════════════════════════════════════════════════
+  // ERROR STATE
+  // ═══════════════════════════════════════════════════════════════════
+  if (hasError) {
+    const isDirectError = mode === "direct";
+
     return (
-      <div className="aspect-video bg-[var(--surface-primary)] rounded-lg flex flex-col items-center justify-center gap-4">
+      <div className="aspect-video bg-[var(--surface-primary)] rounded-lg flex flex-col items-center justify-center gap-4 px-6">
         <AlertCircle className="w-12 h-12 text-[var(--accent-primary)]" />
-        <p className="text-[var(--foreground-muted)]">Failed to load video</p>
-        <div className="flex gap-3">
-          <button
-            onClick={() => {
-              setHasError(false);
-            }}
-            className="btn-secondary"
-          >
+        <p className="text-[var(--foreground-muted)] text-center">
+          {isDirectError
+            ? "This video host blocks direct playback in some browsers."
+            : "Failed to load player"}
+        </p>
+        <div className="flex flex-wrap gap-3 justify-center">
+          <button onClick={handleRetry} className="btn-secondary">
             <RefreshCw className="w-4 h-4" />
             Try Again
           </button>
-          {playerUrl && (
-            <button
-              onClick={() => setUseIframeFallback(true)}
-              className="btn-primary"
-            >
+          {isDirectError && embedSrc && (
+            <button onClick={handleSwitchToEmbed} className="btn-primary">
+              <Monitor className="w-4 h-4" />
               Use Embed Player
+            </button>
+          )}
+          {!isDirectError && embedSrc && (
+            <button onClick={handleOpenInNewTab} className="btn-primary">
+              <ExternalLink className="w-4 h-4" />
+              Open in New Tab
+            </button>
+          )}
+          {!isDirectError && hasDirectSources && !directFailedOnce && (
+            <button onClick={handleSwitchToDirect} className="btn-secondary">
+              <Play className="w-4 h-4" />
+              Try Direct (Beta)
             </button>
           )}
         </div>
@@ -160,12 +312,19 @@ function VideoPlayerInner({
     );
   }
 
-  // Native video player with MP4
-  if (hasDirectMP4 && currentSource) {
+  // ═══════════════════════════════════════════════════════════════════
+  // DIRECT MODE (VIDEO ELEMENT)
+  // ═══════════════════════════════════════════════════════════════════
+  if (mode === "direct" && hasDirectSources && currentSource) {
     return (
       <div className="space-y-3">
-        {/* Video Container */}
         <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+          {videoLoading && (
+            <div className="absolute inset-0 skeleton flex items-center justify-center z-10">
+              <div className="w-12 h-12 border-4 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+
           <video
             ref={videoRef}
             key={currentSource.url}
@@ -173,9 +332,9 @@ function VideoPlayerInner({
             className="w-full h-full"
             controls
             playsInline
-            onError={() => setHasError(true)}
+            onCanPlay={() => setVideoLoading(false)}
+            onError={handleVideoError}
           >
-            {/* VTT Subtitles */}
             {vttCaptions.map((caption, i) => (
               <track
                 key={i}
@@ -188,8 +347,8 @@ function VideoPlayerInner({
             ))}
           </video>
 
-          {/* Quality Selector Button */}
-          {sortedDownloads.length > 1 && (
+          {/* Quality Selector */}
+          {sortedDownloads.length > 1 && !videoLoading && (
             <div className="absolute bottom-16 right-4">
               <div className="relative">
                 <button
@@ -201,7 +360,6 @@ function VideoPlayerInner({
                   <ChevronDown className="w-3 h-3" />
                 </button>
 
-                {/* Quality Menu */}
                 {showQualityMenu && (
                   <div className="absolute bottom-full right-0 mb-2 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl overflow-hidden min-w-[120px]">
                     {sortedDownloads.map((source, index) => (
@@ -222,9 +380,19 @@ function VideoPlayerInner({
               </div>
             </div>
           )}
+
+          {/* Toast notification */}
+          <AnimatePresence>
+            {toastMessage && (
+              <ModeSwithToast
+                message={toastMessage}
+                onClose={() => setToastMessage(null)}
+              />
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* SRT Subtitles as Download Links */}
+        {/* SRT Subtitles */}
         {srtCaptions.length > 0 && (
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-sm text-[var(--foreground-muted)]">
@@ -245,14 +413,14 @@ function VideoPlayerInner({
           </div>
         )}
 
-        {/* Fallback to iframe option */}
-        {playerUrl && (
+        {/* Switch to embed option */}
+        {embedSrc && (
           <div className="text-center">
             <button
-              onClick={() => setUseIframeFallback(true)}
+              onClick={handleSwitchToEmbed}
               className="text-sm text-[var(--foreground-muted)] hover:text-[var(--foreground)] underline"
             >
-              Having issues? Try embed player
+              Having issues? Use embed player
             </button>
           </div>
         )}
@@ -260,7 +428,9 @@ function VideoPlayerInner({
     );
   }
 
-  // Iframe fallback
+  // ═══════════════════════════════════════════════════════════════════
+  // EMBED MODE (IFRAME) - DEFAULT
+  // ═══════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-3">
       <div className="relative aspect-video bg-[var(--surface-primary)] rounded-lg overflow-hidden">
@@ -270,53 +440,39 @@ function VideoPlayerInner({
           </div>
         )}
 
-        {hasError ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[var(--surface-primary)]">
-            <AlertCircle className="w-12 h-12 text-[var(--accent-primary)]" />
-            <p className="text-[var(--foreground-muted)] text-center px-4">
-              Failed to load player
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setHasError(false);
-                  setIframeLoading(true);
-                }}
-                className="btn-secondary"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Reload Player
-              </button>
-              {playerUrl && (
-                <button onClick={handleOpenInNewTab} className="btn-primary">
-                  <ExternalLink className="w-4 h-4" />
-                  Open in New Tab
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
+        {embedSrc && (
           <iframe
-            src={playerUrl}
+            key={embedSrc}
+            src={embedSrc}
             title={`Watch ${title}`}
             className="absolute inset-0 w-full h-full"
             frameBorder="0"
             allowFullScreen
             allow="autoplay; fullscreen; picture-in-picture"
-            onLoad={() => setIframeLoading(false)}
+            onLoad={handleIframeLoad}
             onError={handleIframeError}
           />
         )}
+
+        {/* Toast notification */}
+        <AnimatePresence>
+          {toastMessage && (
+            <ModeSwithToast
+              message={toastMessage}
+              onClose={() => setToastMessage(null)}
+            />
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Switch back to direct player */}
-      {sortedDownloads.length > 0 && useIframeFallback && (
+      {/* Direct player option (Beta) - only show if not failed before */}
+      {hasDirectSources && !directFailedOnce && (
         <div className="text-center">
           <button
-            onClick={() => setUseIframeFallback(false)}
+            onClick={handleSwitchToDirect}
             className="text-sm text-[var(--foreground-muted)] hover:text-[var(--foreground)] underline"
           >
-            Switch to direct player
+            Try direct video (Beta)
           </button>
         </div>
       )}
@@ -328,9 +484,6 @@ function VideoPlayerInner({
  * Video player wrapper that uses key to reset state when playerKey changes
  */
 export function VideoPlayer({ playerKey, ...props }: VideoPlayerProps) {
-  // Use playerKey to force remount the inner component
-  // This ensures all state is reset when episode changes
-  const key = playerKey || props.playerUrl || "player";
-
+  const key = playerKey || props.embedSrc || "player";
   return <VideoPlayerInner key={key} {...props} />;
 }

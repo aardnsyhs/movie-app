@@ -267,7 +267,7 @@ export default async function DetailPage({ params }: DetailPageProps) {
           <Suspense
             fallback={<div className="aspect-video skeleton rounded-lg" />}
           >
-            <VideoPlayer playerUrl={detail.playerUrl} title={detail.title} />
+            <VideoPlayer embedSrc={detail.playerUrl} title={detail.title} />
           </Suspense>
         </section>
       )}

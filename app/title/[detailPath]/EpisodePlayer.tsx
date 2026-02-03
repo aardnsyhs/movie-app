@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Play, Loader2, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { VideoPlayer } from "@/components";
+import { VideoPlayer, type PlaybackMode } from "@/components";
 import { EpisodeBrowser } from "@/components/content/EpisodeBrowser";
 import { fetchStreamSources } from "@/lib/api";
 import { getPlayerBaseUrlFromAnyPlayerUrl, buildPlayerUrl } from "@/lib/utils";
@@ -83,6 +83,9 @@ export function EpisodePlayer({
     captions: [],
     playerUrl: initialPlayerUrl,
   });
+
+  // Playback mode: embed (default) or direct (beta)
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("embed");
 
   // Get first season/episode as fallback
   const firstSeason = seasons[0]?.seasonNumber ?? 1;
@@ -333,11 +336,13 @@ export function EpisodePlayer({
 
             <VideoPlayer
               title={title}
-              playerUrl={streamState.playerUrl}
-              downloads={streamState.downloads}
+              embedSrc={streamState.playerUrl}
+              directSources={streamState.downloads}
               captions={streamState.captions}
               isLoading={isLoadingStream}
               playerKey={playerKey}
+              mode={playbackMode}
+              onModeChange={setPlaybackMode}
             />
 
             {/* Continue Watching Button (mobile) */}
