@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import {
   AlertCircle,
   RefreshCw,
   Settings,
   Download,
   ChevronDown,
+  ExternalLink,
 } from "lucide-react";
 import type { ParsedDownloadSource, ParsedCaption } from "@/lib/schemas";
 
@@ -16,6 +17,8 @@ interface VideoPlayerProps {
   downloads?: ParsedDownloadSource[];
   captions?: ParsedCaption[];
   isLoading?: boolean;
+  /** Unique key to force iframe remount (e.g., `${id}-${season}-${episode}`) */
+  playerKey?: string;
 }
 
 /**
@@ -46,13 +49,16 @@ function isVttCaption(url: string): boolean {
   return url.toLowerCase().endsWith(".vtt");
 }
 
-export function VideoPlayer({
+/**
+ * Inner player component that resets state when key changes
+ */
+function VideoPlayerInner({
   title,
   playerUrl,
   downloads,
   captions,
   isLoading = false,
-}: VideoPlayerProps) {
+}: Omit<VideoPlayerProps, "playerKey">) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasError, setHasError] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
@@ -69,13 +75,18 @@ export function VideoPlayer({
   // SRT captions (show as download links)
   const srtCaptions = captions?.filter((c) => !isVttCaption(c.url)) || [];
 
-  // Reset state when sources change
-  useEffect(() => {
-    setHasError(false);
-    setUseIframeFallback(false);
-    setSelectedQualityIndex(0);
-    setIframeLoading(true);
-  }, [downloads, playerUrl]);
+  // Handle iframe error
+  const handleIframeError = () => {
+    setIframeLoading(false);
+    setHasError(true);
+  };
+
+  // Open player in new tab
+  const handleOpenInNewTab = () => {
+    if (playerUrl) {
+      window.open(playerUrl, "_blank", "noopener,noreferrer");
+    }
+  };
 
   /**
    * Handle quality switch while preserving playback time
@@ -254,23 +265,48 @@ export function VideoPlayer({
     <div className="space-y-3">
       <div className="relative aspect-video bg-[var(--surface-primary)] rounded-lg overflow-hidden">
         {iframeLoading && (
-          <div className="absolute inset-0 skeleton flex items-center justify-center">
+          <div className="absolute inset-0 skeleton flex items-center justify-center z-10">
             <div className="w-12 h-12 border-4 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
           </div>
         )}
-        <iframe
-          src={playerUrl}
-          title={`Watch ${title}`}
-          className="absolute inset-0 w-full h-full"
-          frameBorder="0"
-          allowFullScreen
-          allow="autoplay; fullscreen; picture-in-picture"
-          onLoad={() => setIframeLoading(false)}
-          onError={() => {
-            setIframeLoading(false);
-            setHasError(true);
-          }}
-        />
+
+        {hasError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[var(--surface-primary)]">
+            <AlertCircle className="w-12 h-12 text-[var(--accent-primary)]" />
+            <p className="text-[var(--foreground-muted)] text-center px-4">
+              Failed to load player
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setHasError(false);
+                  setIframeLoading(true);
+                }}
+                className="btn-secondary"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Reload Player
+              </button>
+              {playerUrl && (
+                <button onClick={handleOpenInNewTab} className="btn-primary">
+                  <ExternalLink className="w-4 h-4" />
+                  Open in New Tab
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <iframe
+            src={playerUrl}
+            title={`Watch ${title}`}
+            className="absolute inset-0 w-full h-full"
+            frameBorder="0"
+            allowFullScreen
+            allow="autoplay; fullscreen; picture-in-picture"
+            onLoad={() => setIframeLoading(false)}
+            onError={handleIframeError}
+          />
+        )}
       </div>
 
       {/* Switch back to direct player */}
@@ -286,4 +322,15 @@ export function VideoPlayer({
       )}
     </div>
   );
+}
+
+/**
+ * Video player wrapper that uses key to reset state when playerKey changes
+ */
+export function VideoPlayer({ playerKey, ...props }: VideoPlayerProps) {
+  // Use playerKey to force remount the inner component
+  // This ensures all state is reset when episode changes
+  const key = playerKey || props.playerUrl || "player";
+
+  return <VideoPlayerInner key={key} {...props} />;
 }

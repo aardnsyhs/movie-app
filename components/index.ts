@@ -8,6 +8,7 @@ export { ContentGrid } from "./content/ContentGrid";
 export { ContentRail } from "./content/ContentRail";
 export { HeroSlider } from "./content/HeroSlider";
 export { VideoPlayer } from "./content/VideoPlayer";
+export { EpisodeBrowser } from "./content/EpisodeBrowser";
 export {
   CardSkeleton,
   CardSkeletonGrid,
