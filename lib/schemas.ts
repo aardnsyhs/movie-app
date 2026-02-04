@@ -37,6 +37,7 @@ export const ContentItemSchema = z.object({
   type: ContentTypeSchema,
   genre: z.string().catch(""),
   detailPath: z.string().catch(""),
+  description: z.string().optional(), // For hero overview
 });
 
 /**

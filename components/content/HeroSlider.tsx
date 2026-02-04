@@ -45,6 +45,7 @@ export function HeroSlider({ items, isLoading = false }: HeroSliderProps) {
   }
 
   const currentItem = heroItems[currentIndex];
+  const overview = currentItem.description ?? "";
 
   return (
     <section
@@ -61,17 +62,17 @@ export function HeroSlider({ items, isLoading = false }: HeroSliderProps) {
           transition={{ duration: 0.5 }}
           className="absolute inset-0"
         >
-          {/* Background Image */}
+          {/* Background Image - Using object-[50%_35%] for better focal point */}
           {currentItem.poster && (
             <BackdropImage
               src={currentItem.poster}
               alt=""
-              className="object-cover object-top"
+              className="object-cover object-[50%_35%]"
               priority
             />
           )}
 
-          {/* Gradient Overlays */}
+          {/* Gradient Overlays for readability */}
           <div className="absolute inset-0 bg-gradient-to-r from-[var(--background)] via-[var(--background)]/60 to-transparent" />
           <div className="absolute inset-0 gradient-overlay" />
         </motion.div>
@@ -114,9 +115,16 @@ export function HeroSlider({ items, isLoading = false }: HeroSliderProps) {
             </div>
 
             {/* Title */}
-            <h1 className="text-3xl md:text-5xl font-bold mb-6 line-clamp-2">
+            <h1 className="text-3xl md:text-5xl font-bold mb-3 line-clamp-2">
               {currentItem.title}
             </h1>
+
+            {/* Description/Overview - truncated 2 lines mobile, 3 lines desktop */}
+            {overview && (
+              <p className="text-sm md:text-base text-white/70 mb-6 max-w-xl line-clamp-2 md:line-clamp-3">
+                {overview}
+              </p>
+            )}
 
             {/* CTA Buttons */}
             <div className="flex items-center gap-3">

@@ -13,6 +13,7 @@ export interface ContentItem {
   type: ContentType;
   genre: string;
   detailPath: string;
+  description?: string;
 }
 
 export interface Episode {
