@@ -21,3 +21,6 @@ export {
   RailSkeleton,
   HeroSkeleton,
 } from "./content/CardSkeleton";
+
+// Detail components
+export { CastSection } from "./detail/CastSection";

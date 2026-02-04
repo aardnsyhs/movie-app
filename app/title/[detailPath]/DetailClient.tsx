@@ -16,7 +16,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { formatRating } from "@/lib/utils";
-import { VideoPlayer } from "@/components";
+import { VideoPlayer, CastSection } from "@/components";
 import { BackdropImage, PosterImage } from "@/components/content/PosterImage";
 import { EpisodePlayer } from "./EpisodePlayer";
 import type {
@@ -338,6 +338,13 @@ function DetailContent({
           </div>
         </div>
       </section>
+
+      {/* Cast Section */}
+      {detail.cast && detail.cast.length > 0 && (
+        <div className="container-main">
+          <CastSection cast={detail.cast} />
+        </div>
+      )}
 
       {/* Video Player & Episodes Section */}
       {hasSeasons ? (
