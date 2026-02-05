@@ -1,17 +1,22 @@
 "use client";
 
 import { Suspense, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR, { SWRConfig } from "swr";
+import useSWRInfinite from "swr/infinite";
 import {
   HeroSlider,
   ContentRail,
+  ContentGrid,
   HeroSkeleton,
   RailSkeleton,
 } from "@/components";
-import { HomeContent } from "./HomeContent";
-import { buildAPIUrl, swrFetcherWithTimeout } from "@/lib/api";
+import { CategoryHeader } from "@/components/content/CategoryHeader";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
+import { buildAPIUrl, swrFetcherWithTimeout, swrFetcher } from "@/lib/api";
+import { CATEGORY_LABELS, type Category } from "@/lib/types";
 import type { ParsedAPIListResponse } from "@/lib/schemas";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw, Loader2 } from "lucide-react";
 
 /** Empty response fallback */
 const EMPTY_RESPONSE: ParsedAPIListResponse = {
@@ -21,9 +26,9 @@ const EMPTY_RESPONSE: ParsedAPIListResponse = {
   hasMore: false,
 };
 
-/** SWR config for homepage - aggressive caching, no spam */
+/** SWR config for homepage */
 const swrConfig = {
-  dedupingInterval: 60000, // 1 minute deduplication
+  dedupingInterval: 60000,
   revalidateOnFocus: false,
   revalidateOnReconnect: false,
   errorRetryCount: 1,
@@ -31,18 +36,27 @@ const swrConfig = {
   keepPreviousData: true,
 };
 
+const ALL_CATEGORIES: { category: Category; title: string }[] = [
+  { category: "trending", title: "Trending Now" },
+  { category: "indonesian-movies", title: "Film Indonesia" },
+  { category: "indonesian-drama", title: "Drama Indonesia" },
+  { category: "kdrama", title: "K-Drama" },
+  { category: "short-tv", title: "Short TV" },
+  { category: "anime", title: "Anime" },
+];
+
 /**
- * Rail with SWR data fetching and error handling
+ * Rail with SWR data fetching
  */
 function RailWithData({
   title,
   category,
 }: {
   title: string;
-  category: string;
+  category: Category;
 }) {
   const { data, error, isLoading, mutate } = useSWR<ParsedAPIListResponse>(
-    buildAPIUrl(category as "trending", 1),
+    buildAPIUrl(category, 1),
     swrFetcherWithTimeout,
     {
       ...swrConfig,
@@ -54,7 +68,6 @@ function RailWithData({
     mutate();
   }, [mutate]);
 
-  // Loading state
   if (isLoading && !data?.items.length) {
     return (
       <section className="py-4 md:py-6">
@@ -63,21 +76,18 @@ function RailWithData({
     );
   }
 
-  // Error state with retry
   if (error && !data?.items.length) {
     return (
       <section className="py-4 md:py-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg md:text-xl font-semibold">{title}</h2>
         </div>
-        <div className="flex items-center justify-center gap-4 py-12 px-4 bg-[var(--surface-primary)] rounded-lg border border-[var(--border-primary)]">
-          <AlertCircle className="w-5 h-5 text-[var(--foreground-muted)]" />
-          <span className="text-sm text-[var(--foreground-muted)]">
-            Failed to load content
-          </span>
+        <div className="flex items-center justify-center gap-4 py-12 px-4 bg-white/5 rounded-lg border border-white/10">
+          <AlertCircle className="w-5 h-5 text-white/50" />
+          <span className="text-sm text-white/50">Failed to load content</span>
           <button
             onClick={handleRetry}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-[var(--accent-primary)] text-white rounded-md hover:bg-[var(--accent-primary)]/90 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
             Retry
@@ -87,7 +97,6 @@ function RailWithData({
     );
   }
 
-  // Empty state
   if (!data?.items.length) {
     return null;
   }
@@ -120,34 +129,142 @@ function HeroWithData() {
 }
 
 /**
+ * Category Grid with infinite scroll
+ */
+function CategoryGridWithData({ category }: { category: Category }) {
+  const getKey = (
+    pageIndex: number,
+    previousPageData: ParsedAPIListResponse | null,
+  ) => {
+    if (previousPageData && !previousPageData.hasMore) return null;
+    return buildAPIUrl(category, pageIndex + 1);
+  };
+
+  const { data, error, size, setSize, isValidating, mutate } =
+    useSWRInfinite<ParsedAPIListResponse>(getKey, swrFetcher, {
+      revalidateFirstPage: false,
+      revalidateOnFocus: false,
+    });
+
+  const items = data ? data.flatMap((page) => page.items) : [];
+  const isLoading = !data && !error;
+  const isLoadingMore = isValidating && size > 1;
+  const hasMore = data ? (data[data.length - 1]?.hasMore ?? false) : true;
+  const totalItems = items.length;
+
+  const handleLoadMore = useCallback(() => {
+    if (!isValidating && hasMore) {
+      setSize((prev) => prev + 1);
+    }
+  }, [isValidating, hasMore, setSize]);
+
+  const { loadMoreRef } = useInfiniteScroll({
+    onLoadMore: handleLoadMore,
+    hasMore,
+    isLoading: isValidating,
+  });
+
+  return (
+    <>
+      {/* Category Header */}
+      <CategoryHeader category={category} itemCount={totalItems || undefined} />
+
+      {/* Content Grid */}
+      <section className="container-main py-8">
+        <ContentGrid
+          items={items}
+          isLoading={isLoading}
+          error={error}
+          onRetry={() => mutate()}
+          emptyMessage={`No ${CATEGORY_LABELS[category]} content available`}
+        />
+
+        {/* Load More Trigger */}
+        <div
+          ref={loadMoreRef}
+          className="h-20 flex items-center justify-center"
+        >
+          {isLoadingMore && (
+            <div className="flex items-center gap-2 text-white/50">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>Loading more...</span>
+            </div>
+          )}
+          {!hasMore && items.length > 0 && (
+            <p className="text-white/30 text-sm">You&apos;ve reached the end</p>
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+/**
+ * Home view - all rails
+ */
+function HomeView() {
+  return (
+    <>
+      <HeroWithData />
+      <div className="container-main space-y-2">
+        {ALL_CATEGORIES.map(({ category, title }) => (
+          <RailWithData key={category} title={title} category={category} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+/**
+ * Category view - specific category grid
+ */
+function CategoryView({ category }: { category: Category }) {
+  return <CategoryGridWithData category={category} />;
+}
+
+/**
+ * Inner content that uses searchParams
+ */
+function HomeContentInner() {
+  const searchParams = useSearchParams();
+  const urlCategory = searchParams.get("category") as Category | null;
+
+  // Determine if we're on home or a specific category
+  const isHome = !urlCategory || urlCategory === "trending";
+
+  if (isHome) {
+    return <HomeView />;
+  }
+
+  return <CategoryView category={urlCategory} />;
+}
+
+/**
+ * Loading fallback
+ */
+function HomeLoadingFallback() {
+  return (
+    <>
+      <HeroSkeleton />
+      <div className="container-main space-y-2">
+        <RailSkeleton />
+        <RailSkeleton />
+      </div>
+    </>
+  );
+}
+
+/**
  * Client-side home page with SWR data fetching
- * No SSR blocking - renders skeleton immediately, fetches data client-side
+ * Behavior:
+ * - No category param or "trending" → Hero + all rails
+ * - Specific category → Category header + paginated grid
  */
 export function HomeClient() {
   return (
     <SWRConfig value={swrConfig}>
-      {/* Hero Section */}
-      <HeroWithData />
-
-      {/* Content Rails */}
-      <div className="container-main space-y-2">
-        <RailWithData title="Trending Now" category="trending" />
-        <RailWithData title="Film Indonesia" category="indonesian-movies" />
-        <RailWithData title="Drama Indonesia" category="indonesian-drama" />
-        <RailWithData title="K-Drama" category="kdrama" />
-        <RailWithData title="Short TV" category="short-tv" />
-        <RailWithData title="Anime" category="anime" />
-      </div>
-
-      {/* Category Grid Section (uses its own SWR) */}
-      <Suspense
-        fallback={
-          <div className="container-main py-8">
-            <RailSkeleton />
-          </div>
-        }
-      >
-        <HomeContent />
+      <Suspense fallback={<HomeLoadingFallback />}>
+        <HomeContentInner />
       </Suspense>
     </SWRConfig>
   );
