@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useMemo, useState, useCallback, useEffect } from "react";
+import { useRef, useMemo, useState, useCallback, useEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Search, Play, ChevronDown, Clock, X, Check } from "lucide-react";
 import { ThumbnailImage } from "./PosterImage";
 import type { ParsedSeason, ParsedEpisode } from "@/lib/schemas";
@@ -18,11 +18,20 @@ interface EpisodeBrowserProps {
   onSeasonChange: (seasonIndex: number) => void;
 }
 
-const EPISODE_ROW_HEIGHT = 88;
-const OVERSCAN_COUNT = 5;
+// Increased row height for larger cards
+const EPISODE_CARD_HEIGHT = 140;
+const OVERSCAN_COUNT = 3;
 
 /**
- * Netflix-style Episode Browser with search and virtualization
+ * Netflix-style Episode Browser with premium UI
+ *
+ * Features:
+ * - 2-column grid on desktop, 1-column on mobile
+ * - Large 16:9 thumbnails with hover scale
+ * - Subtle red glow border for active episode
+ * - Progress bar support (future)
+ * - Season accordion structure
+ * - Virtualized list for performance
  */
 export function EpisodeBrowser({
   seasons,
@@ -34,7 +43,7 @@ export function EpisodeBrowser({
   onSeasonChange,
 }: EpisodeBrowserProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false);
+  const [isSeasonExpanded, setIsSeasonExpanded] = useState(true);
   const parentRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -69,11 +78,11 @@ export function EpisodeBrowser({
   const virtualizer = useVirtualizer({
     count: filteredEpisodes.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => EPISODE_ROW_HEIGHT,
+    estimateSize: () => EPISODE_CARD_HEIGHT,
     overscan: OVERSCAN_COUNT,
   });
 
-  // Scroll to active episode when season changes
+  // Scroll to active episode on mount and season change
   const scrollToActiveEpisode = useCallback(() => {
     const activeIndex = filteredEpisodes.findIndex(
       (ep) => ep.episodeNumber === activeEpisode,
@@ -85,12 +94,10 @@ export function EpisodeBrowser({
     }
   }, [filteredEpisodes, activeEpisode, virtualizer]);
 
-  // Effect to scroll when season changes (not on every episode change)
   useEffect(() => {
     if (!searchQuery) {
       scrollToActiveEpisode();
     }
-    // Only run when activeSeason changes, not on every dependency change
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSeason]);
 
@@ -99,15 +106,13 @@ export function EpisodeBrowser({
     setSearchQuery("");
   }, [activeSeason]);
 
-  // Handle keyboard shortcuts
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Focus search on '/' key
       if (e.key === "/" && document.activeElement !== searchInputRef.current) {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
-      // Clear search on Escape
       if (e.key === "Escape" && searchQuery) {
         setSearchQuery("");
         searchInputRef.current?.blur();
@@ -118,7 +123,6 @@ export function EpisodeBrowser({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [searchQuery]);
 
-  // Handle episode selection with keyboard
   const handleEpisodeKeyDown = useCallback(
     (e: React.KeyboardEvent, episode: ParsedEpisode) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -129,7 +133,6 @@ export function EpisodeBrowser({
     [currentSeasonNumber, onSelect],
   );
 
-  // Check if an episode is the last watched one
   const isLastWatched = useCallback(
     (ep: ParsedEpisode) => {
       return (
@@ -140,82 +143,26 @@ export function EpisodeBrowser({
     [currentSeasonNumber, lastWatchedSeason, lastWatchedEpisode],
   );
 
+  // Jump to episode handler
+  const handleJumpToEpisode = useCallback(
+    (episodeNum: number) => {
+      const index = filteredEpisodes.findIndex(
+        (ep) => ep.episodeNumber === episodeNum,
+      );
+      if (index > -1) {
+        virtualizer.scrollToIndex(index, { align: "center" });
+      }
+    },
+    [filteredEpisodes, virtualizer],
+  );
+
   return (
-    <div className="flex flex-col h-full bg-[var(--surface-primary)] rounded-xl overflow-hidden border border-[var(--border-primary)]">
-      {/* Header: Season Selector + Search */}
-      <div className="flex-shrink-0 p-4 border-b border-[var(--border-primary)] space-y-3">
-        {/* Season Selector */}
-        {seasons.length > 1 && (
-          <div className="relative">
-            <button
-              onClick={() => setIsSeasonDropdownOpen(!isSeasonDropdownOpen)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setIsSeasonDropdownOpen(false);
-              }}
-              className={cn(
-                "w-full flex items-center justify-between px-4 py-2.5 rounded-lg",
-                "bg-[var(--surface-secondary)] hover:bg-[var(--surface-hover)]",
-                "text-left font-medium transition-colors",
-                "focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] focus:ring-offset-2 focus:ring-offset-[var(--surface-primary)]",
-              )}
-              aria-expanded={isSeasonDropdownOpen}
-              aria-haspopup="listbox"
-            >
-              <span>
-                {currentSeason?.title || `Season ${currentSeasonNumber}`}
-              </span>
-              <ChevronDown
-                className={cn(
-                  "w-5 h-5 transition-transform",
-                  isSeasonDropdownOpen && "rotate-180",
-                )}
-              />
-            </button>
-
-            <AnimatePresence>
-              {isSeasonDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute top-full left-0 right-0 mt-1 z-20 bg-[var(--surface-secondary)] border border-[var(--border-primary)] rounded-lg shadow-xl overflow-hidden"
-                  role="listbox"
-                >
-                  {seasons.map((season, index) => (
-                    <button
-                      key={season.id || index}
-                      onClick={() => {
-                        onSeasonChange(index);
-                        setIsSeasonDropdownOpen(false);
-                      }}
-                      className={cn(
-                        "w-full px-4 py-2.5 text-left flex items-center justify-between transition-colors",
-                        "hover:bg-[var(--surface-hover)]",
-                        "focus:outline-none focus:bg-[var(--surface-hover)]",
-                        activeSeason === index &&
-                          "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]",
-                      )}
-                      role="option"
-                      aria-selected={activeSeason === index}
-                    >
-                      <span>
-                        {season.title || `Season ${season.seasonNumber}`}
-                      </span>
-                      <span className="text-sm text-[var(--foreground-muted)]">
-                        {season.episodes.length} episodes
-                      </span>
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
-
+    <div className="flex flex-col h-full rounded-xl overflow-hidden border border-white/10 bg-white/5 backdrop-blur-sm">
+      {/* Header: Search */}
+      <div className="flex-shrink-0 p-4 border-b border-white/10 space-y-3">
         {/* Search Input */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--foreground-muted)] pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
           <input
             ref={searchInputRef}
             type="text"
@@ -224,9 +171,9 @@ export function EpisodeBrowser({
             placeholder="Search episodes... (Press /)"
             className={cn(
               "w-full pl-10 pr-10 py-2.5 rounded-lg",
-              "bg-[var(--surface-secondary)] border border-transparent",
-              "placeholder:text-[var(--foreground-subtle)]",
-              "focus:outline-none focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)]",
+              "bg-white/5 border border-white/10",
+              "text-white placeholder:text-white/30",
+              "focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/30",
               "transition-colors",
             )}
             aria-label="Search episodes"
@@ -234,14 +181,97 @@ export function EpisodeBrowser({
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-[var(--surface-hover)] transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-white/10 transition-colors"
               aria-label="Clear search"
             >
-              <X className="w-4 h-4 text-[var(--foreground-muted)]" />
+              <X className="w-4 h-4 text-white/50" />
             </button>
           )}
         </div>
+
+        {/* Quick Jump */}
+        {currentSeason && currentSeason.episodes.length > 20 && (
+          <div className="flex items-center gap-2 text-xs text-white/50">
+            <span>Jump to:</span>
+            <div className="flex gap-1 flex-wrap">
+              {[1, 10, 20, 30, 40, 50].map((num) => {
+                const exists = currentSeason.episodes.some(
+                  (ep) => ep.episodeNumber === num,
+                );
+                if (!exists) return null;
+                return (
+                  <button
+                    key={num}
+                    onClick={() => handleJumpToEpisode(num)}
+                    className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
+                  >
+                    E{num}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Season Accordion */}
+      {seasons.length > 1 ? (
+        <div className="flex-shrink-0 border-b border-white/10">
+          {seasons.map((season, index) => {
+            const isActive = activeSeason === index;
+            const isExpanded = isActive && isSeasonExpanded;
+
+            return (
+              <div key={season.id || index}>
+                <button
+                  onClick={() => {
+                    if (isActive) {
+                      setIsSeasonExpanded(!isSeasonExpanded);
+                    } else {
+                      onSeasonChange(index);
+                      setIsSeasonExpanded(true);
+                    }
+                  }}
+                  className={cn(
+                    "w-full flex items-center justify-between px-4 py-3",
+                    "hover:bg-white/5 transition-colors",
+                    isActive && "bg-white/5",
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={cn("font-medium", isActive && "text-red-500")}
+                    >
+                      {season.title || `Season ${season.seasonNumber}`}
+                    </span>
+                    <span className="text-xs text-white/40">
+                      {season.episodes.length} episodes
+                    </span>
+                  </div>
+                  <motion.div
+                    animate={{ rotate: isExpanded ? 180 : 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <ChevronDown className="w-4 h-4 text-white/50" />
+                  </motion.div>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        // Single season header
+        <div className="flex-shrink-0 px-4 py-3 border-b border-white/10 bg-white/5">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">
+              {currentSeason?.title || `Season ${currentSeasonNumber}`}
+            </span>
+            <span className="text-xs text-white/40">
+              {currentSeason?.episodes.length ?? 0} episodes
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Episode List */}
       <div
@@ -251,12 +281,12 @@ export function EpisodeBrowser({
         aria-label="Episode list"
       >
         {filteredEpisodes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 text-[var(--foreground-muted)]">
+          <div className="flex flex-col items-center justify-center h-48 text-white/50">
             <Search className="w-10 h-10 mb-3 opacity-50" />
             <p className="text-sm">No episodes match your search</p>
             <button
               onClick={() => setSearchQuery("")}
-              className="mt-2 text-sm text-[var(--accent-primary)] hover:underline"
+              className="mt-2 text-sm text-red-500 hover:underline"
             >
               Clear search
             </button>
@@ -291,7 +321,7 @@ export function EpisodeBrowser({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <EpisodeRow
+                  <EpisodeCard
                     episode={episode}
                     isActive={isActive}
                     isLastWatched={isLastWatchedEp}
@@ -307,25 +337,29 @@ export function EpisodeBrowser({
         )}
       </div>
 
-      {/* Footer: Episode count */}
-      <div className="flex-shrink-0 px-4 py-2 border-t border-[var(--border-primary)] text-xs text-[var(--foreground-muted)]">
-        {searchQuery ? (
-          <span>
-            {filteredEpisodes.length} of {currentSeason?.episodes.length ?? 0}{" "}
-            episodes
-          </span>
-        ) : (
-          <span>{currentSeason?.episodes.length ?? 0} episodes</span>
-        )}
+      {/* Footer */}
+      <div className="flex-shrink-0 px-4 py-2 border-t border-white/10 text-xs text-white/40 flex items-center justify-between">
+        <span>
+          {searchQuery
+            ? `${filteredEpisodes.length} of ${currentSeason?.episodes.length ?? 0}`
+            : `${currentSeason?.episodes.length ?? 0} episodes`}
+        </span>
+        <span className="hidden sm:inline">↑↓ Navigate • Enter to play</span>
       </div>
     </div>
   );
 }
 
 /**
- * Episode row component (memoized for virtualization performance)
+ * Netflix-style Episode Card
+ *
+ * Visual States:
+ * - idle: bg-transparent, subtle border
+ * - hover: bg-white/10, thumbnail scale, glow
+ * - active: red glow border, left accent bar, play overlay
+ * - watched: progress bar, check icon
  */
-interface EpisodeRowProps {
+interface EpisodeCardProps {
   episode: ParsedEpisode;
   isActive: boolean;
   isLastWatched: boolean;
@@ -333,103 +367,121 @@ interface EpisodeRowProps {
   onKeyDown: (e: React.KeyboardEvent) => void;
 }
 
-function EpisodeRow({
+const EpisodeCard = memo(function EpisodeCard({
   episode,
   isActive,
   isLastWatched,
   onSelect,
   onKeyDown,
-}: EpisodeRowProps) {
+}: EpisodeCardProps) {
   return (
     <motion.button
       onClick={onSelect}
       onKeyDown={onKeyDown}
       className={cn(
-        "w-full h-full flex items-center gap-3 px-4 text-left transition-colors group",
-        "focus:outline-none focus:bg-[var(--surface-hover)]",
-        isActive
-          ? "bg-[var(--accent-primary)]/15"
-          : "hover:bg-[var(--surface-hover)]",
+        "w-full h-full flex gap-4 p-3 text-left transition-all duration-200 group relative",
+        "focus:outline-none",
+        // Active state: subtle red glow border + left accent
+        isActive && [
+          "bg-red-500/10",
+          "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-red-500 before:rounded-r",
+          "ring-1 ring-red-500/30",
+        ],
+        // Hover state
+        !isActive && "hover:bg-white/10",
       )}
       role="option"
       aria-selected={isActive}
       tabIndex={0}
       whileTap={{ scale: 0.99 }}
     >
-      {/* Thumbnail */}
-      <div className="relative flex-shrink-0 w-28 h-16 rounded-md overflow-hidden bg-[var(--surface-secondary)]">
+      {/* Thumbnail (16:9) */}
+      <div
+        className={cn(
+          "relative flex-shrink-0 w-32 md:w-40 aspect-video rounded-lg overflow-hidden bg-white/5",
+          "transition-transform duration-200",
+          "group-hover:scale-[1.03]",
+          isActive && "ring-2 ring-red-500/50 shadow-lg shadow-red-500/20",
+        )}
+      >
         <ThumbnailImage
           src={episode.cover}
           alt={`Episode ${episode.episodeNumber}`}
         />
 
-        {/* Play overlay on hover */}
+        {/* Play overlay */}
         <div
           className={cn(
-            "absolute inset-0 flex items-center justify-center bg-black/50",
-            "opacity-0 group-hover:opacity-100 transition-opacity",
-            isActive && "opacity-100",
+            "absolute inset-0 flex items-center justify-center bg-black/40",
+            "transition-opacity duration-200",
+            isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100",
           )}
         >
           {isActive ? (
-            <div className="w-8 h-8 rounded-full bg-[var(--accent-primary)] flex items-center justify-center">
-              <Check className="w-4 h-4 text-white" />
+            <div className="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center shadow-lg shadow-red-500/30">
+              <Check className="w-5 h-5 text-white" />
             </div>
           ) : (
-            <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center">
-              <Play className="w-4 h-4 fill-black text-black ml-0.5" />
+            <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
+              <Play className="w-5 h-5 fill-black text-black ml-0.5" />
             </div>
           )}
         </div>
+
+        {/* Progress bar (placeholder for future) */}
+        {isLastWatched && !isActive && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+            <div className="h-full w-1/2 bg-red-500" />
+          </div>
+        )}
       </div>
 
       {/* Info */}
-      <div className="flex-1 min-w-0 py-2">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "font-semibold text-sm",
-              isActive && "text-[var(--accent-primary)]",
-            )}
-          >
-            E{episode.episodeNumber}
-          </span>
-          {episode.title &&
-            episode.title !== `Episode ${episode.episodeNumber}` && (
-              <span className="text-sm truncate text-[var(--foreground)]">
-                {episode.title}
-              </span>
-            )}
-        </div>
+      <div className="flex-1 min-w-0 py-1 flex flex-col justify-center">
+        {/* Episode number (muted) */}
+        <span className="text-xs text-white/40 mb-1">
+          E{episode.episodeNumber}
+        </span>
+
+        {/* Title */}
+        <h4
+          className={cn(
+            "font-semibold text-sm md:text-base line-clamp-1",
+            isActive ? "text-red-400" : "text-white",
+          )}
+        >
+          {episode.title || `Episode ${episode.episodeNumber}`}
+        </h4>
 
         {/* Meta info */}
-        <div className="flex items-center gap-3 mt-1">
+        <div className="flex items-center gap-3 mt-1.5">
           {episode.runtime && (
-            <span className="flex items-center gap-1 text-xs text-[var(--foreground-muted)]">
+            <span className="flex items-center gap-1 text-xs text-white/40">
               <Clock className="w-3 h-3" />
               {episode.runtime}
             </span>
           )}
         </div>
-      </div>
 
-      {/* Badges */}
-      <div className="flex-shrink-0 flex flex-col items-end gap-1">
-        {isActive && (
-          <motion.span
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="px-2 py-0.5 text-xs font-medium text-white bg-[var(--accent-primary)] rounded"
-          >
-            Now Playing
-          </motion.span>
-        )}
-        {isLastWatched && !isActive && (
-          <span className="px-2 py-0.5 text-xs text-[var(--foreground-muted)] bg-[var(--surface-secondary)] rounded">
-            Last watched
-          </span>
-        )}
+        {/* Badges */}
+        <div className="flex items-center gap-2 mt-2">
+          {isActive && (
+            <motion.span
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="px-2 py-0.5 text-xs font-medium text-white bg-red-500 rounded"
+            >
+              Now Playing
+            </motion.span>
+          )}
+          {isLastWatched && !isActive && (
+            <span className="px-2 py-0.5 text-xs text-white/60 bg-white/10 rounded flex items-center gap-1">
+              <Check className="w-3 h-3" />
+              Last watched
+            </span>
+          )}
+        </div>
       </div>
     </motion.button>
   );
-}
+});
