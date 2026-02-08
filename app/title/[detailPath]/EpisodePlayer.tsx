@@ -354,6 +354,7 @@ export function EpisodePlayer({
                 activeEpisode={selectedEpisode}
                 lastWatchedSeason={lastWatched?.season}
                 lastWatchedEpisode={lastWatched?.episode}
+                detailPath={detailPath}
                 onSelect={handleEpisodeSelect}
                 onSeasonChange={handleSeasonChange}
               />
@@ -372,6 +373,7 @@ export function EpisodePlayer({
             activeEpisode={selectedEpisode}
             lastWatchedSeason={lastWatched?.season}
             lastWatchedEpisode={lastWatched?.episode}
+            detailPath={detailPath}
             onSelect={handleEpisodeSelect}
             onSeasonChange={handleSeasonChange}
           />

@@ -7,6 +7,7 @@ import {
   Star,
   Play,
   Plus,
+  Check,
   ArrowLeft,
   Clock,
   Calendar,
@@ -15,6 +16,8 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { useWatchlist } from "@/hooks/useWatchlist";
+import type { ContentItem } from "@/lib/types";
 import { formatRating } from "@/lib/utils";
 import { VideoPlayer, CastSection } from "@/components";
 import { BackdropImage, PosterImage } from "@/components/content/PosterImage";
@@ -221,9 +224,26 @@ function DetailContent({
   detail: ParsedContentDetail;
   detailPath: string;
 }) {
+  const { isInWatchlist, toggleWatchlist } = useWatchlist();
+
   const backdropImage = detail.backdrop || detail.poster;
   const hasSeasons =
     detail.type === "tv" && detail.seasons && detail.seasons.length > 0;
+
+  // Build ContentItem for watchlist
+  const contentItem: ContentItem = {
+    id: detail.id,
+    title: detail.title,
+    poster: detail.poster,
+    rating: detail.rating,
+    year: detail.year,
+    type: detail.type,
+    genre: detail.genre,
+    detailPath,
+    description: detail.description,
+  };
+
+  const inList = isInWatchlist(detail.id);
 
   return (
     <div className="-mt-16">
@@ -329,9 +349,16 @@ function DetailContent({
                   <Play className="w-5 h-5 fill-current" />
                   Watch Now
                 </a>
-                <button className="btn-secondary">
-                  <Plus className="w-5 h-5" />
-                  Add to List
+                <button
+                  onClick={() => toggleWatchlist(contentItem)}
+                  className={`btn-secondary ${inList ? "bg-white/20" : ""}`}
+                >
+                  {inList ? (
+                    <Check className="w-5 h-5" />
+                  ) : (
+                    <Plus className="w-5 h-5" />
+                  )}
+                  {inList ? "In My List" : "My List"}
                 </button>
               </div>
             </div>

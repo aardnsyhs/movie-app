@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Suspense, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -144,8 +145,20 @@ function CategoryGridWithData({ category }: { category: Category }) {
  * All rails view (home)
  */
 function AllRailsView() {
+  // Lazy import to avoid loading if not needed
+  const ContinueWatchingRail = dynamic(
+    () =>
+      import("@/components/content/ContinueWatchingRail").then(
+        (m) => m.ContinueWatchingRail,
+      ),
+    { ssr: false },
+  );
+
   return (
     <div className="container-main space-y-2">
+      {/* Continue Watching - only renders if data exists */}
+      <ContinueWatchingRail />
+
       {ALL_CATEGORIES.map(({ category, title }) => (
         <RailWithData key={category} title={title} category={category} />
       ))}

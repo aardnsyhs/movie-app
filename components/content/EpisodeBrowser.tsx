@@ -5,6 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "framer-motion";
 import { Search, Play, ChevronDown, Clock, X, Check } from "lucide-react";
 import { ThumbnailImage } from "./PosterImage";
+import { useWatchProgress } from "@/hooks/useWatchProgress";
 import type { ParsedSeason, ParsedEpisode } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,7 @@ interface EpisodeBrowserProps {
   activeEpisode: number;
   lastWatchedSeason?: number;
   lastWatchedEpisode?: number;
+  detailPath?: string; // For progress lookup
   onSelect: (season: number, episode: number) => void;
   onSeasonChange: (seasonIndex: number) => void;
 }
@@ -39,9 +41,11 @@ export function EpisodeBrowser({
   activeEpisode,
   lastWatchedSeason,
   lastWatchedEpisode,
+  detailPath,
   onSelect,
   onSeasonChange,
 }: EpisodeBrowserProps) {
+  const { getProgress } = useWatchProgress();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSeasonExpanded, setIsSeasonExpanded] = useState(true);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -325,6 +329,15 @@ export function EpisodeBrowser({
                     episode={episode}
                     isActive={isActive}
                     isLastWatched={isLastWatchedEp}
+                    progress={
+                      detailPath
+                        ? getProgress(
+                            detailPath,
+                            currentSeasonNumber,
+                            episode.episodeNumber,
+                          )?.percentage
+                        : undefined
+                    }
                     onSelect={() =>
                       onSelect(currentSeasonNumber, episode.episodeNumber)
                     }
@@ -363,6 +376,7 @@ interface EpisodeCardProps {
   episode: ParsedEpisode;
   isActive: boolean;
   isLastWatched: boolean;
+  progress?: number; // 0-100 percentage
   onSelect: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
 }
@@ -371,9 +385,12 @@ const EpisodeCard = memo(function EpisodeCard({
   episode,
   isActive,
   isLastWatched,
+  progress,
   onSelect,
   onKeyDown,
 }: EpisodeCardProps) {
+  const hasProgress =
+    typeof progress === "number" && progress > 0 && progress < 90;
   return (
     <motion.button
       onClick={onSelect}
@@ -428,10 +445,20 @@ const EpisodeCard = memo(function EpisodeCard({
           )}
         </div>
 
-        {/* Progress bar (placeholder for future) */}
-        {isLastWatched && !isActive && (
+        {/* Progress bar */}
+        {hasProgress && !isActive && (
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
-            <div className="h-full w-1/2 bg-red-500" />
+            <div
+              className="h-full bg-red-600"
+              style={{ width: `${Math.min(progress || 0, 100)}%` }}
+            />
+          </div>
+        )}
+
+        {/* Watched badge */}
+        {typeof progress === "number" && progress >= 90 && (
+          <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-green-600 flex items-center justify-center">
+            <Check className="w-3 h-3 text-white" />
           </div>
         )}
       </div>
